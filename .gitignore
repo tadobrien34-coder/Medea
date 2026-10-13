@@ -1,0 +1,11 @@
+# dependencies and build output
+node_modules/
+site/dist/
+# raw and intermediate pipeline data (large; regenerate with the pipeline)
+pipeline/raw/
+pipeline/out/
+pipeline/__pycache__/
+__pycache__/
+*.pyc
+.DS_Store
+.claude/
