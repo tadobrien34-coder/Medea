@@ -174,11 +174,11 @@ export default function Explore() {
 
           <section className="card">
             <div className="card-head"><h3>Next moves in real games</h3></div>
-            <div className="card-sub">Result shown for the player making the move. Eval is the median engine score afterwards.</div>
+            <div className="card-sub">Result shown for the player making the move. Eval is the median engine score afterwards, from White’s side.</div>
             {cands.length === 0 ? <div className="empty" style={{ padding: 22 }}>{cursor === 0 && !tree ? 'Loading…' : 'Not enough games for this position.'}</div> : (
               <div className="table-wrap" style={{ padding: '6px 8px 10px' }}>
                 <table className="t cand compact">
-                  <thead><tr><th>Move</th><th className="r">Games</th><th style={{ width: 96 }}>W / D / L</th><th className="r">Eval</th><th /></tr></thead>
+                  <thead><tr><th>Move</th><th className="r">Games</th><th style={{ width: 96 }}>W / D / L</th><th className="r">Eval (W)</th><th /></tr></thead>
                   <tbody>
                     {cands.slice(0, 9).map(([san, n, w, d, l, med, st]) => {
                       const mw = whiteToMove ? w : l, ml = whiteToMove ? l : w

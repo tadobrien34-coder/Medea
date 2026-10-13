@@ -167,7 +167,7 @@ export default function OpeningDetail() {
             <div className="card-sub">Moves played from the end of the main line, for the player moving.</div>
             <div className="table-wrap" style={{ padding: '6px 8px 10px' }}>
               <table className="t compact">
-                <thead><tr><th>Move</th><th className="r">Games</th><th style={{ width: 140 }}>W / D / L</th><th className="r">Eval</th><th /></tr></thead>
+                <thead><tr><th>Move</th><th className="r">Games</th><th style={{ width: 140 }}>W / D / L</th><th className="r">Eval (White)</th><th /></tr></thead>
                 <tbody>{cands.slice(0, 8).map(([san, n, w, d, l, med, st]) => (
                   <tr key={san} className="click" onClick={() => window.location.hash = `#/?line=${[...(o.line ?? []), san].join('_')}`}>
                     <td className="name">{san}</td><td className="r">{num(n)}</td><td><WDL w={whiteToMove ? w : l} d={d} l={whiteToMove ? l : w} /></td>
@@ -199,7 +199,7 @@ export default function OpeningDetail() {
               {kids.slice(0, 14).map((k) => (
                 <Link key={k.key} to={openingPath(k.key)} className="tactic-row" style={{ gridTemplateColumns: 'minmax(0,1fr) auto auto' }}>
                   <span style={{ fontWeight: 550 }}>{k.key.split(': ').slice(1).join(': ')}</span>
-                  <span className="small muted num">{pct(k.score)} · {num(k.n)}</span><Chip tone={toneOf(k.verdict)}>{k.verdict}</Chip>
+                  <span className="small muted num">{pct(k.score)} for {k.side === 0 ? 'White' : 'Black'} · {num(k.n)}</span><Chip tone={toneOf(k.verdict)}>{k.verdict}</Chip>
                 </Link>))}
             </div>
           </section>
