@@ -288,7 +288,7 @@ table.t.compact td { padding: 6px 10px; }
 hr.sep { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
 .gm-row { padding: 14px 20px; border-top: 1px solid var(--border); }
 .gm-row:first-child { border-top: 0; }
-.opening-line { display: grid; grid-template-columns: minmax(180px, 1.2fr) 140px 60px minmax(0, 2fr); gap: 14px; align-items: center; padding: 10px 0; border-top: 1px solid var(--grid); }
+.opening-line { display: grid; grid-template-columns: minmax(180px, 1.2fr) 140px 84px minmax(0, 2fr); gap: 14px; align-items: center; padding: 10px 0; border-top: 1px solid var(--grid); }
 .opening-line:first-child { border-top: 0; }
 @media (max-width: 900px) { .opening-line { grid-template-columns: 1fr 120px; } .opening-line .desc { grid-column: 1 / -1; } }
 .link { color: var(--accent); font-weight: 550; cursor: pointer; }
@@ -296,3 +296,6 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
 
 /* grid/flex children must be allowed to shrink so wide tables and charts scroll instead of overflowing */
 .main, .stack > *, .stack-lg > *, .grid-2 > *, .grid-3 > *, .grid-4 > *, .explore > *, .split > * { min-width: 0; }
+
+.cand th, .cand td { padding-left: 8px; padding-right: 8px; }
+.cand .wdl { min-width: 70px; }

@@ -178,7 +178,7 @@ export default function Explore() {
             {cands.length === 0 ? <div className="empty" style={{ padding: 22 }}>{cursor === 0 && !tree ? 'Loading…' : 'Not enough games for this position.'}</div> : (
               <div className="table-wrap" style={{ padding: '6px 8px 10px' }}>
                 <table className="t cand compact">
-                  <thead><tr><th>Move</th><th className="r">Games</th><th style={{ width: 130 }}>W / D / L</th><th className="r">Eval</th><th /></tr></thead>
+                  <thead><tr><th>Move</th><th className="r">Games</th><th style={{ width: 96 }}>W / D / L</th><th className="r">Eval</th><th /></tr></thead>
                   <tbody>
                     {cands.slice(0, 9).map(([san, n, w, d, l, med, st]) => {
                       const mw = whiteToMove ? w : l, ml = whiteToMove ? l : w

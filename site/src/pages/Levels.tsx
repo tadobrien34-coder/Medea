@@ -114,7 +114,7 @@ function Overview({ entries, selected, setSelected, sel }: { entries: LevelEntry
                 <tr key={e.label}><td className="name">{e.label}</td><td className="r muted">{num(e.n)}</td><td colSpan={8} className="muted small">Not enough analysed games yet</td></tr>
               ) : (
                 <tr key={e.label} className={`click ${i === selected ? 'sel' : ''}`} onClick={() => setSelected(i)}>
-                  <td className="name">{e.label}</td><td className="r">{num(e.n)}</td>
+                  <td className="name">{e.label}</td><td className="r">{num(e.n)}{e.n < 300 && <span className="chip warn" style={{ marginLeft: 6, padding: '0 6px', fontSize: 11 }} title="Fewer than 300 analysed games: read with caution">few</span>}</td>
                   <td className="r">{e.end.mean.toFixed(1)}</td><td className="r">{e.shifts.mean.toFixed(2)}</td><td className="r">{pct(e.shifts.zero)}</td>
                   <td className="r">{e.final_shift.median ?? '–'}</td>
                   <td className="r">{e.checks.white.toFixed(1)} / {e.checks.black.toFixed(1)}</td><td className="r">{pct(e.checks.pct_all, 1)}</td>
@@ -206,8 +206,9 @@ function Detail({ e }: { e: LevelEntry }) {
 function Blunders({ entries, plot, sel, selected, setSelected }: { entries: LevelEntry[]; plot: number[]; sel?: LevelEntry; selected: number; setSelected: (i: number) => void }) {
   const [kind, setKind] = useState<'blunder' | 'mistake'>('blunder')
   const first = entries.find((e) => !e.thin)
-  const ser = (pick: (e: LevelEntry) => { blunder: number | null; mistake: number | null }[]) =>
-    seriesFor(entries, plot, (e) => pick(e).map((b) => (b[kind] == null ? null : b[kind]! * 100)))
+  // bins with fewer than 300 moves are too noisy to plot
+  const ser = (pick: (e: LevelEntry) => { moves: number; blunder: number | null; mistake: number | null }[]) =>
+    seriesFor(entries, plot, (e) => pick(e).map((b) => (b[kind] == null || b.moves < 300 ? null : b[kind]! * 100)))
   const byMove = ser((e) => e.blunder.by_move)
   const bySec = ser((e) => e.blunder.by_clock_sec)
   const byPct = ser((e) => e.blunder.by_clock_pct)

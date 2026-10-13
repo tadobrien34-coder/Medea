@@ -105,13 +105,13 @@ export default function OpeningDetail() {
         <div className="grid-2">
           <section className="card">
             <div className="card-head"><h3>Careful with</h3></div>
-            <div className="card-sub">The piece you moved when the lead changed hands{o.careful_moves ? `, usually around moves ${o.careful_moves[0]}–${o.careful_moves[1]}` : ''}.</div>
-            <HBars labels={[...PIECES]} values={o.careful} fmt={fmt(cTot)} color="var(--s2)" />
+            <div className="card-sub">The piece you moved when the lead changed hands (a tag shows pieces that slip more than usual){o.careful_moves ? `, usually around moves ${o.careful_moves[0]}–${o.careful_moves[1]}` : ''}.</div>
+            <HBars labels={[...PIECES]} values={o.careful} fmt={fmt(cTot)} color="var(--s2)" marks={o.careful_lift} />
           </section>
           <section className="card">
             <div className="card-head"><h3>Target</h3></div>
             <div className="card-sub">The opponent’s piece when they gave the lead away{o.target_moves ? `, usually around moves ${o.target_moves[0]}–${o.target_moves[1]}` : ''}.</div>
-            <HBars labels={[...PIECES]} values={o.target} fmt={fmt(tTot)} color="var(--s3)" />
+            <HBars labels={[...PIECES]} values={o.target} fmt={fmt(tTot)} color="var(--s3)" marks={o.target_lift} />
             {pTot > 0 && <div className="card-sub" style={{ paddingBottom: 14 }}>You cash in with the {PIECES[o.punish.indexOf(Math.max(...o.punish))].toLowerCase()} most often ({((100 * Math.max(...o.punish)) / pTot).toFixed(0)}%).</div>}
           </section>
         </div>

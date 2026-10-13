@@ -31,6 +31,8 @@ export default function Openings() {
   const [level, setLevel] = useState<'f' | 'v' | 'all'>('f')
   const [side, setSide] = useState<'all' | '0' | '1'>('all')
   const [verdict, setVerdict] = useState('all')
+  const [objF, setObjF] = useState('all')
+  const [playF, setPlayF] = useState('all')
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<{ k: SortKey; dir: 1 | -1 }>({ k: 'n', dir: -1 })
 
@@ -38,11 +40,11 @@ export default function Openings() {
     if (!data) return []
     const t = q.trim().toLowerCase()
     let r = data.openings.filter((o) => (level === 'all' || o.level === level) && (side === 'all' || String(o.side) === side) &&
-      (verdict === 'all' || o.verdict === verdict) && (!t || o.key.toLowerCase().includes(t) || (o.eco ?? '').toLowerCase() === t))
+      (verdict === 'all' || o.verdict === verdict) && (objF === 'all' || o.tier_obj === objF) && (playF === 'all' || o.tier_play === playF) && (!t || o.key.toLowerCase().includes(t) || (o.eco ?? '').toLowerCase() === t))
     const val = (o: OpeningIndexItem): number | string => (sort.k === 'name' ? o.key : sort.k === 'obj' ? o.rel_obj : sort.k === 'play' ? o.play : sort.k === 'score' ? o.score : o.n)
     r = [...r].sort((a, b) => { const x = val(a), y = val(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir })
     return r
-  }, [data, level, side, verdict, q, sort])
+  }, [data, level, side, verdict, objF, playF, q, sort])
 
   const best = useMemo(() => {
     if (!data) return { w: [], b: [] }
@@ -108,10 +110,25 @@ export default function Openings() {
             {['all', 'Recommended', 'Solid', 'Playable', 'Niche', 'Risky', 'Avoid'].map((v) => <option key={v} value={v}>{v === 'all' ? 'All verdicts' : v}</option>)}
           </select>
         </Filter>
+        <Filter label="Objective">
+          <select value={objF} onChange={(e) => setObjF(e.target.value)} aria-label="Objective strength">
+            <option value="all">Any</option><option value="good">Good</option><option value="sound">Sound</option><option value="dubious">Dubious</option>
+          </select>
+        </Filter>
+        <Filter label="Playability">
+          <select value={playF} onChange={(e) => setPlayF(e.target.value)} aria-label="Playability">
+            <option value="all">Any</option><option value="high">High</option><option value="ok">OK</option><option value="tricky">Tricky</option>
+          </select>
+        </Filter>
         <input type="search" placeholder="Search name or ECO" value={q} onChange={(e) => setQ(e.target.value)} style={{ minWidth: 200 }} aria-label="Search openings" />
         <span className="small muted">{rows.length} openings</span>
       </div>
 
+      <div className="small muted" style={{ margin: '-6px 0 12px', lineHeight: 1.7 }}>
+        {[['Recommended', 'engine-approved and easy to play'], ['Solid', 'engine-approved, harder in practice'], ['Playable', 'sound and practical'],
+          ['Niche', 'sound on paper, scores poorly'], ['Risky', 'dubious but scores well'], ['Avoid', 'dubious and hard to play']].map(([k, v]) => (
+          <span key={k} style={{ marginRight: 14, whiteSpace: 'nowrap' }}><strong style={{ color: 'var(--ink-2)' }}>{k}</strong> {v}</span>))}
+      </div>
       <section className="card">
         <div className="table-wrap">
           <table className="t">

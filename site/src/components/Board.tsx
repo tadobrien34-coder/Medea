@@ -10,6 +10,7 @@ export default function Board({ fen, flipped, onMove, arrows, lastMove, interact
   arrows?: { startSquare: string; endSquare: string; color: string }[]; lastMove?: [string, string] | null; interactive?: boolean
 }) {
   const [selected, setSelected] = useState<string | null>(null)
+  const [promo, setPromo] = useState<{ from: string; to: string } | null>(null)
   const game = useMemo(() => new Chess(fen), [fen])
 
   const legalTargets = useMemo(() => {
@@ -17,15 +18,20 @@ export default function Board({ fen, flipped, onMove, arrows, lastMove, interact
     return game.moves({ square: selected as Square, verbose: true }).map((m) => m.to as string)
   }, [game, selected])
 
-  const attempt = (from: string, to: string): boolean => {
+  const commit = (from: string, to: string, promotion?: string): boolean => {
     try {
-      const mv = game.moves({ square: from as Square, verbose: true }).find((m) => m.to === to)
-      if (!mv) return false
       const g = new Chess(fen)
-      const res = g.move({ from, to, promotion: mv.promotion ? 'q' : undefined })
+      const res = g.move({ from, to, promotion })
       onMove?.(res.san)
       return true
     } catch { return false }
+  }
+
+  const attempt = (from: string, to: string): boolean => {
+    const mv = game.moves({ square: from as Square, verbose: true }).find((m) => m.to === to)
+    if (!mv) return false
+    if (mv.promotion) { setPromo({ from, to }); return false }   // ask which piece
+    return commit(from, to)
   }
 
   const squareStyles = useMemo(() => {
@@ -38,7 +44,10 @@ export default function Board({ fen, flipped, onMove, arrows, lastMove, interact
     return s
   }, [lastMove, selected, legalTargets])
 
+  const white = game.turn() === 'w'
+  const glyph: Record<string, string> = white ? { q: '♕', r: '♖', b: '♗', n: '♘' } : { q: '♛', r: '♜', b: '♝', n: '♞' }
   return (
+    <div style={{ position: 'relative' }}>
     <Chessboard
       options={{
         position: fen,
@@ -65,5 +74,17 @@ export default function Board({ fen, flipped, onMove, arrows, lastMove, interact
         canDragPiece: ({ square }) => !!square && game.get(square as Square)?.color === game.turn(),
       }}
     />
+      {promo && (
+        <div role="dialog" aria-label="Choose promotion piece" onClick={() => setPromo(null)}
+          style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', background: 'rgba(0,0,0,.35)' }}>
+          <div className="card" style={{ display: 'flex', gap: 6, padding: 8 }} onClick={(e) => e.stopPropagation()}>
+            {(['q', 'r', 'b', 'n'] as const).map((k) => (
+              <button key={k} className="btn" style={{ fontSize: 34, lineHeight: 1, padding: '6px 12px', color: 'var(--ink)' }} aria-label={{ q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight' }[k]}
+                onClick={() => { const p = promo; setPromo(null); setSelected(null); commit(p.from, p.to, k) }}>{glyph[k]}</button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

@@ -49,13 +49,15 @@ def features(rec):
     if f.has_clock:
         ck = np.asarray(ck, dtype=np.float64)
         base, inc = rec['base'], rec['inc']
+        # each side's first clock reading is its true starting time (berserked arena games start at half the nominal time)
+        start = np.array([ck[0], ck[1]])
         prev = np.empty(n)
-        prev[:2] = base
+        prev[:2] = start
         prev[2:] = ck[:-2]
         f.cb = prev                                          # clock when the move started
         f.spent = np.maximum(prev + inc - ck, 0)
-        den = base if base > 0 else 40 * inc
-        f.cpct = 100.0 * prev / max(den, 1)
+        f.spent[:2] = 0                                      # the first move of each side is not timed
+        f.cpct = 100.0 * prev / np.maximum(start[f.ply % 2], 1)
         f.base, f.inc = base, inc
 
     # ---- evals

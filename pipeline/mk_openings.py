@@ -53,6 +53,12 @@ def baselines(rows, ev):
     return {'obj': [bw, -bw], 'score': [ws, 1 - ws], 'steady': [st_w, st_b]}
 
 
+def piece_baseline(shifts):
+    own = shifts[shifts[:, 2] == shifts[:, 3]]
+    c = np.bincount(own[:, 4], minlength=6).astype(float)
+    return (c / c.sum()).tolist()
+
+
 def tier_obj(rel):
     return 'good' if rel >= 0.08 else ('sound' if rel >= -0.15 else 'dubious')
 
@@ -132,7 +138,7 @@ def analyse(level, key, idx, tables, ev_all, base, meta, global_tact, n_games):
         c = np.bincount(arr[:, 1], minlength=len(bp.TACTICS))
         rate = c / n
         lift = rate / np.maximum(global_tact, 1e-9)
-        order = [i for i in np.argsort(-lift) if bp.TACTICS[i][0] not in SIGNATURE_SKIP and c[i] >= 6][:3]
+        order = [i for i in np.argsort(-lift) if bp.TACTICS[i][0] not in SIGNATURE_SKIP and c[i] >= 6 and lift[i] >= 1.15][:3]
         sig.append([{'id': bp.TACTICS[i][0], 'name': bp.TACTICS[i][1], 'per100': round(100 * rate[i], 1),
                      'lift': round(float(lift[i]), 2)} for i in order])
     by_tc = {}
@@ -169,6 +175,7 @@ def analyse(level, key, idx, tables, ev_all, base, meta, global_tact, n_games):
         'losses': {'mate': pct(ltypes[0], max(1, sum(ltypes))), 'resign': pct(ltypes[1], max(1, sum(ltypes))),
                    'time': pct(ltypes[2], max(1, sum(ltypes))), 'median_move': int(np.median(em[lost])) if lost.any() else None},
         'careful': [int(x) for x in careful], 'target': [int(x) for x in target], 'punish': [int(x) for x in punish_you],
+        'careful_lift': lift_of(careful, base['pieces']), 'target_lift': lift_of(target, base['pieces']),
         'careful_moves': [int(np.percentile(own_moves, 25)), int(np.percentile(own_moves, 75))] if len(own_moves) >= 8 else None,
         'target_moves': [int(np.percentile(opp_moves, 25)), int(np.percentile(opp_moves, 75))] if len(opp_moves) >= 8 else None,
         'shifts_per_game': round(float(len(S)) / n, 2),
@@ -176,6 +183,13 @@ def analyse(level, key, idx, tables, ev_all, base, meta, global_tact, n_games):
     }
     out['summary'] = summarise(out)
     return out
+
+
+def lift_of(counts, base):
+    c = np.asarray(counts, dtype=float)
+    if c.sum() < 12:
+        return [None] * 6
+    return [round(float(x), 2) for x in (c / c.sum()) / np.asarray(base)]
 
 
 def summarise(o):
@@ -194,12 +208,16 @@ def summarise(o):
     if c.sum() >= 12:
         top = np.argsort(-c)[:2]
         mv = f", usually around moves {o['careful_moves'][0]}–{o['careful_moves'][1]}" if o['careful_moves'] else ''
-        L.append('Careful with your ' + ' and '.join(f"{PNAME[i]} ({c[i] / c.sum() * 100:.0f}%)" for i in top)
+        lf = o['careful_lift']
+        tag = lambda i: f"{c[i] / c.sum() * 100:.0f}%" + (f", {lf[i]:.1f}× usual" if lf[i] and lf[i] >= 1.2 else '')
+        L.append('Careful with your ' + ' and '.join(f"{PNAME[i]} ({tag(i)})" for i in top)
                  + f": the piece you move when the lead slips{mv}.")
     t = np.array(o['target'], dtype=float)
     if t.sum() >= 12:
         top = np.argsort(-t)[:2]
-        L.append('Target their ' + ' and '.join(f"{PNAME[i]} ({t[i] / t.sum() * 100:.0f}%)" for i in top)
+        lf = o['target_lift']
+        tag = lambda i: f"{t[i] / t.sum() * 100:.0f}%" + (f", {lf[i]:.1f}× usual" if lf[i] and lf[i] >= 1.2 else '')
+        L.append('Target their ' + ' and '.join(f"{PNAME[i]} ({tag(i)})" for i in top)
                  + ': they give the advantage away with it most often.')
     sg = o['signature']['yours']
     if sg:
@@ -215,6 +233,7 @@ def build(tables, meta, outdir):
     rows = tables['rows']
     vk, fk, ev = prep(tables)
     base = baselines(rows, ev)
+    base['pieces'] = piece_baseline(tables['shifts'])
     n_games = len(vk)
     tact = tables['tact']
     gt = np.bincount(tact[:, 1], minlength=len(bp.TACTICS)) / n_games / 2.0   # per game per side

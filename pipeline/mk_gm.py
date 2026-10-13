@@ -307,6 +307,7 @@ def build(outdir, openings_index):
         grades[tc] = {'good': [rows[i][0] for i in order[:k]], 'bad': [rows[i][0] for i in order[::-1][:k]]}
     for tc in TCS:
         reps[tc].sort(key=lambda x: (x['title'] != 'GM', -(x['rating'] or 0)))
+        reps[tc] = reps[tc][:20]
     json.dump({'players': list(players.values()), 'grades': grades}, open(os.path.join(gdir, 'players.json'), 'w'), separators=(',', ':'))
     json.dump(reps, open(os.path.join(gdir, 'repertoires.json'), 'w'), separators=(',', ':'))
     out = {}

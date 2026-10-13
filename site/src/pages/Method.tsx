@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { ChartCard, LineChart } from '../components/charts/Charts'
 import { Loading, PageHead } from '../components/ui'
 import { useData } from '../lib/data'
@@ -6,7 +7,7 @@ import type { LevelsFile } from '../lib/types'
 
 interface Row { t: number; reached: number; win: number | null; kept: number | null }
 interface MethodFile {
-  win_adv: number; lead: number; sustain: number; grid: number[]; n_games: number; built: string; months?: string[]; gm_games?: number
+  win_adv: number; lead: number; sustain: number; grid: number[]; n_games: number; built: string; months?: string[]; gm_games?: number; api_games?: number
   all: Row[]; by_band: { band: string; rows: Row[] }[]; by_tc: { tc: string; rows: Row[] }[]
 }
 
@@ -27,7 +28,7 @@ export default function Method() {
         <section className="card card-pad">
           <div className="section-title">Data</div>
           <ul className="bullets">
-            <li><strong>{num(m.n_games)} Lichess games</strong> with computer analysis, from the public monthly database{m.months ? ` (${m.months.join(', ')})` : ''}. Engine evaluations and clock times come from Lichess itself. Games are rated, standard, and between players within 250 points of each other.</li>
+            <li><strong>{num(m.n_games)} Lichess games</strong> with computer analysis, sampled from the public monthly database{m.months ? ` (${m.months.join(', ')})` : ''}. Engine evaluations and clock times come from Lichess itself. Games are rated, standard, and between players within 250 points of each other.{m.api_games ? ` The thinnest top-rating groups are topped up with ${num(m.api_games)} analysed games of strong players from the Lichess API.` : ''}</li>
             <li><strong>Rating groups</strong> use the average rating of both players, in 100-point steps, merged into 200, 400, 600 and 800 point groups on demand.</li>
             <li><strong>Grandmaster data</strong> comes from each player’s most recent rated games through the Lichess API{m.gm_games ? ` (${num(m.gm_games)} games)` : ''}. Blunder statistics use only the games Lichess has analysed.</li>
             <li><strong>Your own games</strong> are fetched in your browser from Lichess or Chess.com and never leave it.</li>
@@ -44,7 +45,7 @@ export default function Method() {
             series={[{ key: 'w', name: 'Went on to win', color: SERIES[0], values: m.all.map((x) => (x.win ?? 0) * 100) }, { key: 'k', name: `Kept ≥ +${m.lead.toFixed(1)}`, color: SERIES[1], values: m.all.map((x) => (x.kept ?? 0) * 100) }]} />
         </ChartCard>
         <div className="note">
-          At +{m.win_adv.toFixed(0)}, {pct(sel.kept)} of reached advantages are never given back and {pct(sel.win)} become wins. Gains flatten after that, so +{m.win_adv.toFixed(0)} is the smallest round number that is usually kept at every level (below, the lowest group is the most volatile). A single static value is used everywhere on the site.
+          At +{m.win_adv.toFixed(0)}, {pct(sel.kept)} of reached advantages are never given back and {pct(sel.win)} become wins. Gains flatten after that. +{m.win_adv.toFixed(0)} is the smallest round threshold where at least three in four advantages are kept at every rating level (lower-rated games are the most volatile, as the table shows). One static value is used everywhere on the site.
         </div>
         <section className="card">
           <div className="card-head"><h3>The same test by rating</h3></div>
@@ -110,7 +111,7 @@ function Terms() {
   return (
     <section className="card card-pad">
       <div className="section-title">Terms</div>
-      <dl className="kv" style={{ gap: '10px 16px' }}>{rows.map(([k, v]) => <><dt key={k} style={{ fontWeight: 550, color: 'var(--ink)' }}>{k}</dt><dd key={k + 'd'} style={{ fontWeight: 400, color: 'var(--ink-2)' }}>{v}</dd></>)}</dl>
+      <dl className="kv" style={{ gap: '10px 16px' }}>{rows.map(([k, v]) => <Fragment key={k}><dt style={{ fontWeight: 550, color: 'var(--ink)' }}>{k}</dt><dd style={{ fontWeight: 400, color: 'var(--ink-2)' }}>{v}</dd></Fragment>)}</dl>
     </section>
   )
 }

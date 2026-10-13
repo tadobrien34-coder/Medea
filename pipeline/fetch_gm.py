@@ -62,11 +62,11 @@ def build_pool():
         print(t, len(c), 'eligible')
 
 
-def fetch_games(top, min_games):
+def fetch_games(top, min_games, tcs):
     pool = json.load(open(os.path.join(REF, 'gm_pool.json')))
     os.makedirs(RAW, exist_ok=True)
     jobs = []
-    for t in TCS:
+    for t in [x for x in TCS if x in tcs]:
         c = [x for x in pool if t in x['perfs'] and x['perfs'][t]['games'] >= min_games and not x['perfs'][t]['prov']]
         c.sort(key=lambda x: -x['perfs'][t]['rating'])
         gms = [x for x in c if x.get('title') == 'GM'][:top]
@@ -100,5 +100,6 @@ if __name__ == '__main__':
     ap.add_argument('cmd', choices=['pool', 'games'])
     ap.add_argument('--top', type=int, default=20)
     ap.add_argument('--min-games', type=int, default=30)
+    ap.add_argument('--tcs', default='bullet,blitz,rapid,classical')
     a = ap.parse_args()
-    build_pool() if a.cmd == 'pool' else fetch_games(a.top, a.min_games)
+    build_pool() if a.cmd == 'pool' else fetch_games(a.top, a.min_games, a.tcs.split(','))

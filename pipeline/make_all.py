@@ -18,7 +18,12 @@ def main():
     if os.path.exists(os.path.join(HERE, 'ref', 'gm_pool.json')):
         mk_gm.build(SITE_DATA, ents)
     mk_tactics.build(tables, SITE_DATA, tables['n'])
-    mk_method.build(tables['cells'], SITE_DATA, tables['n'], {'built': time.strftime('%Y-%m-%d')})
+    import glob as _g
+    months = sorted(os.path.basename(f)[6:13] for f in _g.glob(os.path.join(HERE, 'raw', 'games_20*.jsonl')))
+    nlines = lambda p: sum(1 for _ in open(p, encoding='utf8')) if os.path.exists(p) else 0
+    gm_games = sum(nlines(f) for f in _g.glob(os.path.join(HERE, 'raw', 'gm', '*.ndjson')))
+    api_games = nlines(os.path.join(HERE, 'raw', 'games_gm.jsonl'))
+    mk_method.build(tables['cells'], SITE_DATA, tables['n'], {'built': time.strftime('%Y-%m-%d'), 'months': months, 'gm_games': gm_games, 'api_games': api_games})
     print('all done', round(time.time() - t0), 's')
 
 if __name__ == '__main__':

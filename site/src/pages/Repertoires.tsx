@@ -49,7 +49,7 @@ export default function Repertoires() {
                     <div className="opening-line" key={o.key}>
                       <Link to={to} className="link" style={{ fontWeight: 600, color: 'var(--ink)' }}>{o.key}</Link>
                       <div><WDL w={o.w} d={o.d} l={o.l} /><div className="tiny muted num" style={{ marginTop: 3 }}>{pct(o.w / o.n)} · {pct(o.d / o.n)} · {pct(o.l / o.n)}</div></div>
-                      <div className="small muted num">{o.n}<br />{side}</div>
+                      <div className="small muted num">{o.n} games<br />{side === 'Both' ? 'both colours' : `as ${side}`}</div>
                       <div className="desc small ink2">
                         {o.how_win && <div><strong style={{ color: 'var(--ink)' }}>Win:</strong> {o.how_win}</div>}
                         {o.how_lose && <div style={{ marginTop: 3 }}><strong style={{ color: 'var(--ink)' }}>Lose:</strong> {o.how_lose}</div>}

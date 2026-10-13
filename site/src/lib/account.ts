@@ -56,8 +56,8 @@ function parseLichess(d: any, lc: string): UGame | null {
   const spent: number[] = []
   if (Array.isArray(d.clocks) && d.clocks.length >= sans.length) {   // the API appends one extra trailing entry
     for (let i = color; i < sans.length; i += 2) {
-      const prev = i >= 2 ? d.clocks[i - 2] / 100 : base
-      spent.push(Math.max(0, prev + inc - d.clocks[i] / 100))
+      if (i < 2) { spent.push(0); continue }          // first moves are not timed
+      spent.push(Math.max(0, d.clocks[i - 2] / 100 + inc - d.clocks[i] / 100))
     }
   }
   let evs: number[] | undefined
@@ -102,7 +102,7 @@ function parseChessCom(g: any, lc: string, book: Book | null): UGame | null {
   if (color < 0) return null
   const me = color === 0 ? g.white : g.black, opp = color === 0 ? g.black : g.white
   const pgn: string = g.pgn
-  const body = pgn.replace(/\[[^\]]*\]\s*/g, '')
+  const body = pgn.replace(/^\[.*\]\s*$/gm, '')                  // header lines only; keep the [%clk] tags in comments
   const clks = [...body.matchAll(/\[%clk (\d+):(\d+):(\d+(?:\.\d+)?)\]/g)].map((m) => +m[1] * 3600 + +m[2] * 60 + parseFloat(m[3]))
   const sans = body.replace(/\{[^}]*\}/g, ' ').replace(/\d+\.(\.\.)?/g, ' ').replace(/(1-0|0-1|1\/2-1\/2|\*)\s*$/, ' ').split(/\s+/).filter(Boolean)
   if (sans.length < 4) return null
@@ -111,8 +111,8 @@ function parseChessCom(g: any, lc: string, book: Book | null): UGame | null {
   const spent: number[] = []
   if (clks.length === sans.length) {
     for (let i = color; i < sans.length; i += 2) {
-      const prev = i >= 2 ? clks[i - 2] : baseS
-      spent.push(Math.max(0, prev + inc - clks[i]))
+      if (i < 2) { spent.push(0); continue }          // first moves are not timed
+      spent.push(Math.max(0, clks[i - 2] + inc - clks[i]))
     }
   }
   const draws = ['agreed', 'repetition', 'stalemate', 'insufficient', '50move', 'timevsinsufficient']
@@ -217,7 +217,7 @@ function describe(a: { wins: UGame[]; losses: UGame[]; tw: Record<string, number
     const ml = median(a.losses.map((g) => Math.ceil(g.plies / 2))); if (ml) lose.push(`A typical loss ends around move ${ml}.`)
     const sp = a.youSlip.reduce((x, y) => x + y, 0)
     if (sp >= 10) lose.push(`The lead slips with the ${PIECE[a.youSlip.indexOf(Math.max(...a.youSlip))]} most often.`)
-    else if (!a.analysed) lose.push('Request computer analysis on Lichess to see where the lead slips.')
+    else if (!a.analysed) lose.push('Engine analysis is needed to see where the lead slips (available for analysed Lichess games).')
   }
   return { win, lose }
 }

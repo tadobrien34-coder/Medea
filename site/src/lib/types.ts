@@ -17,7 +17,7 @@ export interface OpeningDetailFile extends OpeningIndexItem {
   bands: { band: string; n: number; win: number; draw: number; loss: number }[]
   wins: { mate: number; resign: number; time: number; median_move: number | null }
   losses: { mate: number; resign: number; time: number; median_move: number | null }
-  careful: number[]; target: number[]; punish: number[]
+  careful: number[]; target: number[]; punish: number[]; careful_lift: (number | null)[]; target_lift: (number | null)[]
   careful_moves: [number, number] | null; target_moves: [number, number] | null
   signature: { yours: Sig[]; theirs: Sig[] }
   summary: string[]; children?: string[]

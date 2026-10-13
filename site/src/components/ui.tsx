@@ -70,7 +70,7 @@ export function Collapsible({ title, children, open: o = false }: { title: React
 }
 
 /** Horizontal share bars for the six pieces. */
-export function HBars({ labels, values, color, fmt, total }: { labels: string[]; values: number[]; color?: string; fmt?: (v: number) => string; total?: number }) {
+export function HBars({ labels, values, color, fmt, total, marks }: { labels: string[]; values: number[]; color?: string; fmt?: (v: number) => string; total?: number; marks?: (number | null)[] }) {
   const t = total ?? (values.reduce((a, b) => a + b, 0) || 1)
   const max = Math.max(...values, 1)
   return (
@@ -79,7 +79,8 @@ export function HBars({ labels, values, color, fmt, total }: { labels: string[];
         <div className="hbar" key={l}>
           <span className="ink2">{l}</span>
           <span className="track"><i style={{ width: `${(100 * values[i]) / max}%`, background: color ?? 'var(--s1)' }} /></span>
-          <span className="v">{fmt ? fmt(values[i]) : `${((100 * values[i]) / t).toFixed(0)}%`}</span>
+          <span className="v">{fmt ? fmt(values[i]) : `${((100 * values[i]) / t).toFixed(0)}%`}
+            {marks?.[i] != null && marks[i]! >= 1.2 && <span className="chip warn" style={{ marginLeft: 6, padding: '0 6px', fontSize: 11 }} title="Share compared with all openings">{marks[i]!.toFixed(1)}×</span>}</span>
         </div>
       ))}
     </div>

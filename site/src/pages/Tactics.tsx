@@ -47,7 +47,13 @@ export default function Tactics() {
           <section className="card card-pad">
             <h2>{cur.name}</h2>
             <p className="ink2" style={{ marginTop: 6 }}>{cur.what}</p>
-            {cur.saves ? (
+            {cur.win_adv_rate == null && !cur.saves ? (
+              <div className="grid-3" style={{ marginTop: 16 }}>
+                <Stat label="Seen in" value={num(cur.n)} hint={`${cur.per100.toFixed(2)} per 100 games`} />
+                <Stat label="Result" value="Checkmate" hint="The game ends on the spot" />
+                <Stat label="Gifted by a mistake" value={pct(cur.gifted)} hint="the opponent’s previous move was a mistake" />
+              </div>
+            ) : cur.saves ? (
               <div className="grid-3" style={{ marginTop: 16 }}>
                 <Stat label="Seen in" value={num(cur.n)} hint={`${cur.per100.toFixed(2)} per 100 games`} />
                 <Stat label="Result" value="Half a point" hint="A lost position becomes a draw" />
@@ -67,7 +73,7 @@ export default function Tactics() {
 
           <div className="grid-3">
             <TextCard title="Recognise it" text={cur.recognize} />
-            <TextCard title={cur.saves ? 'Use it' : 'Hold the advantage'} text={cur.hold} />
+            <TextCard title={cur.saves ? 'Use it' : cur.win_adv_rate == null ? 'Before you start' : 'Hold the advantage'} text={cur.hold} />
             <TextCard title="Avoid the blunder" text={cur.avoid} />
           </div>
 
