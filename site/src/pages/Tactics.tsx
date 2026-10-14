@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { BarChart } from '../components/charts/Charts'
+import BoardView from '../components/BoardView'
 import { Loading, Meter, PageHead, Stat } from '../components/ui'
 import { useData } from '../lib/data'
 import { PIECES, num, pct, signed } from '../lib/format'
@@ -12,6 +13,7 @@ interface Tactic {
   by_band: { band: string; n: number; win_adv_rate: number | null }[]
   by_tc: { tc: string; n: number; win_adv_rate: number | null }[]
   what: string; recognize: string; hold: string; avoid: string; thoughts: string[]
+  examples: { fen: string; uci: string; san: string; from: string; to: string; targets: string[]; e_prev: number; e_after: number; move_no: number; white: boolean; rating: number }[]
 }
 interface TacticsFile { n_games: number; win_adv: number; generic_after: string[]; tactics: Tactic[] }
 
@@ -76,6 +78,26 @@ export default function Tactics() {
             <TextCard title={cur.saves ? 'Use it' : cur.win_adv_rate == null ? 'Before you start' : 'Hold the advantage'} text={cur.hold} />
             <TextCard title="Avoid the blunder" text={cur.avoid} />
           </div>
+
+          {cur.examples?.length > 0 && (
+            <section className="card">
+              <div className="card-head"><h3>Real examples</h3></div>
+              <div className="card-sub">Positions from the games, just before the tactic. The arrow is the move; orange squares are where material was won.</div>
+              <div className="grid-2" style={{ padding: '12px 20px 18px' }}>
+                {cur.examples.map((x, i) => (
+                  <figure key={i} style={{ margin: 0 }}>
+                    <BoardView fen={x.fen} flipped={!x.white} id={`ex-${cur.id}-${i}`} notation
+                      arrows={[{ startSquare: x.from, endSquare: x.to, color: 'rgba(42,120,214,0.9)' }]}
+                      tint={Object.fromEntries(x.targets.map((q) => [q, 'rgba(235,104,52,0.55)']))} />
+                    <figcaption className="small ink2" style={{ marginTop: 8 }}>
+                      <strong style={{ color: 'var(--ink)' }}>{x.white ? 'White' : 'Black'} to move, move {x.move_no}: {x.san}</strong>
+                      {cur.saves ? '' : <> · eval {signed(x.e_prev, 1)} → {signed(x.e_after, 1)}</>} · rating ~{Math.round(x.rating / 100) * 100}
+                    </figcaption>
+                  </figure>
+                ))}
+              </div>
+            </section>
+          )}
 
           {cur.thoughts.length > 0 && (
             <section className="card card-pad">

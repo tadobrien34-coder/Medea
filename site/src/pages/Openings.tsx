@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Icon from '../components/Icon'
+import HoverBoard from '../components/HoverBoard'
 import { Chip, Filter, Loading, Meter, PageHead, Segmented, WDL } from '../components/ui'
 import { useData } from '../lib/data'
 import { num, openingPath, pct, signed } from '../lib/format'
@@ -73,7 +74,7 @@ export default function Openings() {
             <div style={{ padding: '4px 8px 10px' }}>
               {list.map((o) => (
                 <Link key={o.key} to={openingPath(o.key)} className="tactic-row" style={{ gridTemplateColumns: 'minmax(0,1fr) auto auto' }}>
-                  <span className="name" style={{ fontWeight: 550 }}>{o.key}</span>
+                  <HoverBoard line={o.line} next={(o.next ?? []) as [string, number][]} flipped={o.side === 1} title={o.key} caption={o.plan}><span className="name" style={{ fontWeight: 550 }}>{o.key}</span></HoverBoard>
                   <span className="small muted num">{pct(o.score)} · {num(o.n)}</span>
                   <Chip tone="good">{signed(o.med['16'] ?? o.obj, 2)}</Chip>
                 </Link>
@@ -139,7 +140,8 @@ export default function Openings() {
             <tbody>
               {rows.slice(0, 250).map((o) => (
                 <tr key={o.level + o.key} className="click" onClick={() => nav(openingPath(o.key))}>
-                  <td><div className="name row" style={{ gap: 8, flexWrap: 'nowrap' }}><i className={`dot ${o.side === 0 ? 'w' : 'b'}`} title={o.side === 0 ? 'White opening' : 'Black defence'} />{o.key}</div>
+                  <td><HoverBoard as="div" line={o.line} next={(o.next ?? []) as [string, number][]} flipped={o.side === 1} title={o.key} caption={<>{o.plan || ''}<div className="muted" style={{ marginTop: 4 }}>{pct(o.score)} · {num(o.n)} games</div></>}>
+                    <div className="name row" style={{ gap: 8, flexWrap: 'nowrap' }}><i className={`dot ${o.side === 0 ? 'w' : 'b'}`} title={o.side === 0 ? 'White opening' : 'Black defence'} />{o.key}</div></HoverBoard>
                     <div className="sub" style={{ marginLeft: 17 }}>{o.eco}{o.level === 'v' ? ` · ${o.family}` : ''}</div></td>
                   <td className="r">{num(o.n)}</td>
                   <td className="r"><div className="row" style={{ justifyContent: 'flex-end', gap: 8, flexWrap: 'nowrap' }}><span>{pct(o.score)}</span><div style={{ width: 66 }}><WDL w={o.wdl[0]} d={o.wdl[1]} l={o.wdl[2]} /></div></div></td>
@@ -164,10 +166,10 @@ function LineList({ title, lines }: { title: string; lines: Lines['white'] }) {
       <div className="section-title" style={{ padding: '4px 8px 0' }}>{title}</div>
       {lines.slice(0, 4).map((l, i) => (
         <Link key={i} to={`/?line=${l.moves.join('_')}`} className="tactic-row" style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}>
-          <span>
+          <HoverBoard line={l.moves} title={l.name ?? 'Unnamed line'} caption={`${signed(l.eval, 2)} · ${pct(l.score)} score · ${num(l.n)} games`}><span>
             <span style={{ fontWeight: 550 }}>{l.name ?? 'Unnamed line'}</span>
             <span className="small muted num" style={{ display: 'block' }}>{movesText(l.moves)}</span>
-          </span>
+          </span></HoverBoard>
           <span className="small num ink2" style={{ textAlign: 'right' }}>{signed(l.eval, 2)}<br /><span className="muted">{pct(l.score)} · {num(l.n)}</span></span>
         </Link>
       ))}

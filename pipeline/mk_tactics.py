@@ -1,5 +1,6 @@
 """Tactics statistics -> data/tactics.json"""
 import json, os
+import chess
 import numpy as np
 from lib import *
 import board_pass as bp
@@ -55,6 +56,7 @@ def build(tables, outdir, n_games):
                                         if ((a[:, COL['tc']] == k) & fresh).sum() >= 25 and not saves else None)}
                       for k in range(4)],
         }
+        d['examples'] = pick_examples(tables.get('examples', []), tid)
         d.update(TEXT[key])
         d['thoughts'] = after_thoughts(d)
         out['tactics'].append(d)
@@ -77,3 +79,35 @@ def after_thoughts(d):
     if d['gifted'] is not None:
         L.append(f"{d['gifted'] * 100:.0f}% of these were gifted by an opponent mistake, so stay alert: you may be in the same trouble next move.")
     return L
+
+
+def pick_examples(examples, tid, k=2):
+    """Real positions from the data: the position before the tactic, the move, and the squares where material was won."""
+    cand = []
+    for (t, fen, san, e_prev, e_after, cm, ply, avg) in examples:
+        if t != tid:
+            continue
+        pieces = sum(1 for ch in fen.split(' ')[0] if ch.isalpha())
+        if tid in (0, 1, 20, 21):
+            if pieces > 20:
+                continue
+        elif not 10 <= pieces <= 28 or san[0] in 'KO' or not (-100 <= e_prev <= 250) or e_after < 300 or e_after - e_prev > 750:
+            continue
+        cand.append((e_after - e_prev, fen, san, e_prev, e_after, cm, ply, avg))
+    cand.sort(key=lambda x: (-x[0] if tid not in (0, 1, 20, 21) else sum(1 for ch in x[1].split(' ')[0] if ch.isalpha())))
+    out, seen = [], set()
+    for gain, fen, san, e_prev, e_after, cm, ply, avg in cand:
+        if fen in seen:
+            continue
+        b = chess.Board(fen)
+        try:
+            mv = b.parse_san(san)
+        except Exception:
+            continue
+        seen.add(fen)
+        out.append({'fen': fen, 'uci': mv.uci(), 'san': san, 'from': chess.square_name(mv.from_square), 'to': chess.square_name(mv.to_square),
+                    'targets': [chess.square_name(q) for q in range(64) if (cm >> q) & 1], 'e_prev': round(e_prev / 100, 1),
+                    'e_after': round(e_after / 100, 1), 'move_no': ply // 2 + 1, 'white': b.turn, 'rating': int(avg)})
+        if len(out) >= k:
+            break
+    return out

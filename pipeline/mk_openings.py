@@ -1,9 +1,11 @@
 """Per-opening statistics, classification and written summaries."""
 import json, os, re
+from collections import Counter
+import chess
 import numpy as np
 from lib import *
 import board_pass as bp
-from mk_book import vkey_of, fkey_of, side_of
+from mk_book import vkey_of, fkey_of, side_of, pos_key
 
 MIN_GAMES = 100
 PNAME = ['pawn', 'knight', 'bishop', 'rook', 'queen', 'king']
@@ -29,6 +31,53 @@ def pct(a, b, nd=3):
 def median_move(plies):
     plies = np.asarray(plies)
     return int(np.median(plies // 2 + 1)) if len(plies) else None
+
+
+PK = ['P', 'N', 'B', 'R', 'Q', 'K']
+PNAME_FULL = ['pawn', 'knight', 'bishop', 'rook', 'queen', 'king']
+
+
+def sqn(i):
+    return chess.square_name(int(i))
+
+
+def slip_summary(rows):
+    """Which piece slipped the lead, where it went, and whether the reply took it."""
+    out, tot = {}, max(1, len(rows))
+    for pc in range(6):
+        r = rows[rows[:, 4] == pc]
+        if len(r) < 6:
+            continue
+        ids = Counter(int(x) for x in r[:, 6] if x >= 0).most_common(3)
+        to = Counter(int(x) for x in r[:, 8] if x >= 0).most_common(6)
+        capd = r[r[:, 9] == 1]
+        out[PK[pc]] = {
+            'n': int(len(r)), 'share': round(len(r) / tot, 3),
+            'ids': [[sqn(i), round(c / len(r), 2)] for i, c in ids],
+            'to': [[sqn(q), round(c / len(r), 2)] for q, c in to],
+            'cap': round(len(capd) / len(r), 2),
+            'by': [[PK[t - 1], round(c / len(capd), 2)] for t, c in Counter(int(x) for x in capd[:, 10]).most_common(3)] if len(capd) >= 6 else [],
+        }
+    return out
+
+
+def loss_summary(rows, n_games):
+    """Pieces of one colour that were captured: how often, where, by what, and whether it was a clean win."""
+    out = {}
+    for t in range(1, 6):                       # pawn..queen (python-chess numbering)
+        r = rows[rows[:, 3] == t]
+        if len(r) < 8:
+            continue
+        ids = Counter(int(x) for x in r[:, 4] if x >= 0).most_common(3)
+        sq = Counter(int(x) for x in r[:, 5]).most_common(6)
+        by = Counter(int(x) for x in r[:, 6]).most_common(3)
+        out[PK[t - 1]] = {
+            'per100': round(100 * len(r) / n_games, 1), 'clean': round(float((r[:, 7] == 1).mean()), 2),
+            'ids': [[sqn(i), round(100 * c / n_games, 1)] for i, c in ids],
+            'sq': [[sqn(q), round(100 * c / n_games, 1)] for q, c in sq],
+            'by': [[PK[b - 1], round(c / len(r), 2)] for b, c in by],
+        }
+    return out
 
 
 def prep(tables):
@@ -79,7 +128,7 @@ def verdict(o, p):
     return 'Playable' if p != 'tricky' else 'Niche'
 
 
-def analyse(level, key, idx, tables, ev_all, base, meta, global_tact, n_games):
+def analyse(level, key, idx, tables, ev_all, base, meta, global_tact, n_games, tree_next):
     rows, shifts, tact = tables['rows'], tables['shifts'], tables['tact']
     n = len(idx)
     m = meta.get((level, key)) or {}
@@ -126,6 +175,24 @@ def analyse(level, key, idx, tables, ev_all, base, meta, global_tact, n_games):
     careful = np.bincount(own[:, 4], minlength=6)
     target = np.bincount(opp[:, 4], minlength=6)
     punish_you = np.bincount(opp[:, 5][opp[:, 5] >= 0], minlength=6)   # the pieces that cash in for you
+    # per-piece detail: which piece, where, and what happened next
+    slip = {'you': slip_summary(own), 'them': slip_summary(opp)}
+    LS = tables['losses']
+    inL = np.zeros(len(rows['res']), dtype=bool)
+    inL[idx] = True
+    Lg = LS[inL[LS[:, 0]]] if len(LS) else LS
+    lost_pieces = {'you': loss_summary(Lg[Lg[:, 2] == side], n), 'them': loss_summary(Lg[Lg[:, 2] == 1 - side], n)}
+    nxt = []
+    if m.get('sans'):
+        bb = chess.Board()
+        try:
+            for sn in m['sans']:
+                bb.push_san(sn)
+            kids = tree_next.get(pos_key(bb), [])
+            tot_k = sum(c for _, c in kids) or 1
+            nxt = [[sn, round(c / tot_k, 2)] for sn, c in sorted(kids, key=lambda x: -x[1])[:4] if c / tot_k >= 0.05]
+        except Exception:
+            nxt = []
     own_moves = (own[:, 1] // 2 + 1) if len(own) else np.zeros(0)
     opp_moves = (opp[:, 1] // 2 + 1) if len(opp) else np.zeros(0)
     # tactics (primary tag only)
@@ -141,6 +208,13 @@ def analyse(level, key, idx, tables, ev_all, base, meta, global_tact, n_games):
         order = [i for i in np.argsort(-lift) if bp.TACTICS[i][0] not in SIGNATURE_SKIP and c[i] >= 6 and lift[i] >= 1.15][:3]
         sig.append([{'id': bp.TACTICS[i][0], 'name': bp.TACTICS[i][1], 'per100': round(100 * rate[i], 1),
                      'lift': round(float(lift[i]), 2)} for i in order])
+    heat = {}
+    for key_, arr in (('w', T[T[:, 4] == 0]), ('b', T[T[:, 4] == 1])):
+        lo, hi = arr[:, 17], arr[:, 18]
+        h = np.zeros(64)
+        for q in range(64):
+            h[q] = (((lo >> q) & 1) if q < 32 else ((hi >> (q - 32)) & 1)).sum()
+        heat[key_] = [round(float(100 * x / n), 1) for x in h]
     by_tc = {}
     tcs = rows['tc'][idx]
     for i, t in enumerate(TCS):
@@ -180,8 +254,10 @@ def analyse(level, key, idx, tables, ev_all, base, meta, global_tact, n_games):
         'target_moves': [int(np.percentile(opp_moves, 25)), int(np.percentile(opp_moves, 75))] if len(opp_moves) >= 8 else None,
         'shifts_per_game': round(float(len(S)) / n, 2),
         'signature': {'yours': sig[0], 'theirs': sig[1]},
+        'heat': heat, 'slip': slip, 'lost': lost_pieces, 'next': nxt,
     }
     out['summary'] = summarise(out)
+    out['plan'] = plan_text(out)
     return out
 
 
@@ -190,6 +266,25 @@ def lift_of(counts, base):
     if c.sum() < 12:
         return [None] * 6
     return [round(float(x), 2) for x in (c / c.sum()) / np.asarray(base)]
+
+
+
+def plan_text(o):
+    """One or two sentences: where play usually goes and what to watch."""
+    bits = []
+    if o.get('next'):
+        bits.append('Usually continues ' + ', '.join(f"{sn} ({int(p * 100)}%)" for sn, p in o['next'][:3]) + '.')
+    sl = o['slip']['you']
+    if sl:
+        top = max(sl.items(), key=lambda kv: kv[1]['n'])
+        k, v = top
+        to = ', '.join(q for q, _ in v['to'][:2])
+        bits.append(f"Your {PNAME_FULL[PK.index(k)]} is the one to watch" + (f" (often landing on {to})." if to else '.'))
+    th = o['slip']['them']
+    if th:
+        k, v = max(th.items(), key=lambda kv: kv[1]['n'])
+        bits.append(f"Aim at their {PNAME_FULL[PK.index(k)]}.")
+    return ' '.join(bits)
 
 
 def summarise(o):
@@ -238,6 +333,9 @@ def build(tables, meta, outdir):
     tact = tables['tact']
     gt = np.bincount(tact[:, 1], minlength=len(bp.TACTICS)) / n_games / 2.0   # per game per side
     print('baselines', base)
+    tree_next = {}
+    for (parent, san), v in tables['tree'].items():
+        tree_next.setdefault(parent, []).append((san, v[2]))
     entries = []
     # variation level (names with ':') and family level
     for level, arr in (('v', vk), ('f', fk)):
@@ -250,7 +348,7 @@ def build(tables, meta, outdir):
             if level == 'v' and ':' not in key:
                 continue
             idx = order[starts[gi]:starts[gi + 1]]
-            o = analyse(level, key, idx, tables, ev, base, meta, gt, n_games)
+            o = analyse(level, key, idx, tables, ev, base, meta, gt, n_games, tree_next)
             entries.append(o)
     # families that are also lone variations keep level 'f'; link variations to families
     fam_children = {}
@@ -265,6 +363,11 @@ def build(tables, meta, outdir):
         json.dump(o, open(os.path.join(outdir, 'openings', f"{o['level']}-{o['slug']}.json"), 'w'), separators=(',', ':'))
         index.append({k: o[k] for k in ('key', 'level', 'slug', 'family', 'side', 'eco', 'n', 'score', 'wdl', 'obj', 'rel_obj', 'steady',
                                          'play', 'tier_obj', 'tier_play', 'verdict', 'sd30', 'edge', 'win', 'shifts_per_game')})
+        index[-1]['plan'] = o['plan']
+        index[-1]['next'] = o['next']
+        index[-1]['band_score'] = [None if not any(b['band'] == nm for b in o['bands']) else
+                                   round(next(b['win'] + 0.5 * b['draw'] for b in o['bands'] if b['band'] == nm), 3) for nm in BAND_NAMES]
+        index[-1]['band_n'] = [next((b['n'] for b in o['bands'] if b['band'] == nm), 0) for nm in BAND_NAMES]
         index[-1]['med'] = {str(p): (o['traj']['med'][p - 1] if len(o['traj']['med']) >= p else None) for p in (8, 16, 24, 40)}
         index[-1]['line'] = o['line']
     json.dump({'baselines': base, 'min_games': MIN_GAMES, 'openings': index}, open(os.path.join(outdir, 'openings.json'), 'w'),

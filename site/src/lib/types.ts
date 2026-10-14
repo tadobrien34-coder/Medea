@@ -8,6 +8,7 @@ export interface OpeningIndexItem {
   tier_obj: 'good' | 'sound' | 'dubious'; tier_play: 'high' | 'ok' | 'tricky'; verdict: string; sd30: number | null
   edge: { share: number | null; move: number | null }; win: { share: number | null; move: number | null }
   shifts_per_game: number; med: Record<string, number | null>; line: string[] | null
+  plan?: string; next?: [string, number][]; band_score?: (number | null)[]; band_n?: number[]
 }
 export interface OpeningsFile { baselines: Record<string, number[]>; min_games: number; openings: OpeningIndexItem[] }
 
@@ -21,7 +22,12 @@ export interface OpeningDetailFile extends OpeningIndexItem {
   careful_moves: [number, number] | null; target_moves: [number, number] | null
   signature: { yours: Sig[]; theirs: Sig[] }
   summary: string[]; children?: string[]
+  heat: { w: number[]; b: number[] }; plan: string; next: [string, number][]
+  slip: Record<'you' | 'them', Record<string, SlipInfo>>
+  lost: Record<'you' | 'them', Record<string, LostInfo>>
 }
+export interface SlipInfo { n: number; share: number; ids: [string, number][]; to: [string, number][]; cap: number; by: [string, number][] }
+export interface LostInfo { per100: number; clean: number; ids: [string, number][]; sq: [string, number][]; by: [string, number][] }
 export interface Sig { id: string; name: string; per100: number; lift: number }
 
 export interface GmOpeningEntry { id: string; name: string; title?: string; n: number; w: number; d: number; l: number; tcs: Record<string, number> }

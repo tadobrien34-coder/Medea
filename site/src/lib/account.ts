@@ -2,38 +2,46 @@ import { Book, openingAlong } from './book'
 import { TC, variationKey } from './format'
 
 export type Platform = 'lichess' | 'chesscom'
+export interface Blunder { ply: number; san: string; drop: number; before: number; after: number; best?: string }
 export interface UGame {
-  id: string; tc: TC; color: 0 | 1; res: 1 | 0.5 | 0; term: 'mate' | 'resign' | 'time' | 'draw' | 'other'
-  plies: number; opening: string; base: number; inc: number; rating: number | null; opp: number | null
-  spent: number[]            // seconds per own move
-  sans?: string[]; evs?: number[]
+  id: string; platform: Platform; ts: number; tc: TC; color: 0 | 1; res: 1 | 0.5 | 0; term: 'mate' | 'resign' | 'time' | 'draw' | 'other'
+  plies: number; opening: string; opPly: number; base: number; inc: number; rating: number | null; opp: number | null; oppName: string
+  spent: number[]            // seconds per own move (first move is free)
+  left: number[]             // seconds left after each own move
+  sans: string[]; evs?: number[]; evSrc?: 'lichess' | 'local'
+  blunder?: Blunder | null   // set once analysed (null = analysed, none found)
 }
 
 const TCSET: Record<string, TC> = { bullet: 'Bullet', blitz: 'Blitz', rapid: 'Rapid', classical: 'Classical' }
 export class AccountError extends Error {}
 
 /* ---------------------------------------------------------------- Lichess */
-export async function loadLichess(user: string, max: number, onProgress: (n: number) => void, signal: AbortSignal): Promise<UGame[]> {
+export async function loadLichess(user: string, max: number, since: number | null, onProgress: (n: number) => void, signal: AbortSignal): Promise<UGame[] & { partial?: boolean }> {
   const url = `https://lichess.org/api/games/user/${encodeURIComponent(user)}?max=${max}&rated=true&perfType=bullet,blitz,rapid,classical` +
-    '&opening=true&clocks=true&evals=true&moves=true&ongoing=false'
+    '&opening=true&clocks=true&evals=true&moves=true&ongoing=false' + (since ? `&since=${since + 1}` : '')
   const res = await fetch(url, { headers: { Accept: 'application/x-ndjson' }, signal })
   if (res.status === 404) throw new AccountError(`No Lichess account called “${user}”.`)
   if (res.status === 429) throw new AccountError('Lichess is rate limiting this browser. Wait a minute and try again.')
   if (!res.ok || !res.body) throw new AccountError(`Lichess returned ${res.status}.`)
-  const out: UGame[] = []
+  const out: UGame[] & { partial?: boolean } = []
   const reader = res.body.getReader(), dec = new TextDecoder()
   let buf = ''
   const lc = user.toLowerCase()
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (value) buf += dec.decode(value, { stream: true })
-    const lines = buf.split('\n'); buf = done ? '' : lines.pop() ?? ''
-    for (const line of lines) {
-      if (!line.trim()) continue
-      const g = parseLichess(JSON.parse(line), lc)
-      if (g) { out.push(g); if (out.length % 20 === 0) onProgress(out.length) }
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (value) buf += dec.decode(value, { stream: true })
+      const lines = buf.split('\n'); buf = done ? '' : lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const g = parseLichess(JSON.parse(line), lc)
+        if (g) { out.push(g); if (out.length % 20 === 0) onProgress(out.length) }
+      }
+      if (done) break
     }
-    if (done) break
+  } catch (e: any) {
+    if (e?.name === 'AbortError' || !out.length) throw e
+    out.partial = true                       // keep what arrived; the rest comes with the next refresh
   }
   onProgress(out.length)
   return out
@@ -53,11 +61,11 @@ function parseLichess(d: any, lc: string): UGame | null {
   const res = winner < 0 ? 0.5 : winner === color ? 1 : 0
   const term = status === 'mate' ? 'mate' : status === 'resign' ? 'resign' : status === 'outoftime' ? 'time' : (status === 'draw' || status === 'stalemate') ? 'draw' : 'other'
   const inc = d.clock?.increment ?? 0, base = d.clock?.initial ?? 0
-  const spent: number[] = []
+  const spent: number[] = [], left: number[] = []
   if (Array.isArray(d.clocks) && d.clocks.length >= sans.length) {   // the API appends one extra trailing entry
     for (let i = color; i < sans.length; i += 2) {
-      if (i < 2) { spent.push(0); continue }          // first moves are not timed
-      spent.push(Math.max(0, d.clocks[i - 2] / 100 + inc - d.clocks[i] / 100))
+      spent.push(i < 2 ? 0 : Math.max(0, d.clocks[i - 2] / 100 + inc - d.clocks[i] / 100))   // first moves are not timed
+      left.push(d.clocks[i] / 100)
     }
   }
   let evs: number[] | undefined
@@ -66,28 +74,42 @@ function parseLichess(d: any, lc: string): UGame | null {
     while (e.length < sans.length) e.push(e[e.length - 1] ?? 0)
     evs = e
   }
+  const oppUser = (color === 0 ? b : w)?.user
   return {
-    id: d.id, tc, color: color as 0 | 1, res, term, plies: sans.length, opening: d.opening?.name ?? '?', base, inc,
-    rating: (color === 0 ? w : b)?.rating ?? null, opp: (color === 0 ? b : w)?.rating ?? null, spent, sans, evs,
+    id: d.id, platform: 'lichess', ts: d.createdAt ?? 0, tc, color: color as 0 | 1, res, term, plies: sans.length, opening: d.opening?.name ?? '?', opPly: d.opening?.ply ?? 0,
+    base, inc, rating: (color === 0 ? w : b)?.rating ?? null, opp: (color === 0 ? b : w)?.rating ?? null, oppName: oppUser?.name ?? 'Anonymous',
+    spent, left, sans, evs, evSrc: evs ? 'lichess' : undefined,
   }
 }
 
 /* ---------------------------------------------------------------- Chess.com */
-export async function loadChessCom(user: string, max: number, book: Book | null, onProgress: (n: number) => void, signal: AbortSignal): Promise<UGame[]> {
+export async function loadChessCom(user: string, max: number, book: Book | null, since: number | null, onProgress: (n: number) => void, signal: AbortSignal): Promise<UGame[] & { partial?: boolean }> {
   const base = `https://api.chess.com/pub/player/${encodeURIComponent(user.toLowerCase())}/games`
   const arch = await fetch(`${base}/archives`, { signal })
   if (arch.status === 404) throw new AccountError(`No Chess.com account called “${user}”.`)
   if (!arch.ok) throw new AccountError(`Chess.com returned ${arch.status}.`)
   const months: string[] = (await arch.json()).archives ?? []
-  const out: UGame[] = []
+  const out: UGame[] & { partial?: boolean } = []
   const lc = user.toLowerCase()
+  const sinceMonth = since ? new Date(since) : null
   for (let i = months.length - 1; i >= 0 && out.length < max; i--) {
-    const r = await fetch(months[i], { signal })
-    if (!r.ok) continue
-    const games: any[] = (await r.json()).games ?? []
+    if (sinceMonth) {
+      const m = months[i].match(/(\d{4})\/(\d{2})$/)
+      if (m && (+m[1] < sinceMonth.getUTCFullYear() || (+m[1] === sinceMonth.getUTCFullYear() && +m[2] < sinceMonth.getUTCMonth() + 1))) break
+    }
+    let games: any[]
+    try {
+      const r = await fetch(months[i], { signal })
+      if (!r.ok) continue
+      games = (await r.json()).games ?? []
+    } catch (e: any) {
+      if (e?.name === 'AbortError' || !out.length) throw e
+      out.partial = true
+      break
+    }
     for (const g of games.reverse()) {
       const u = parseChessCom(g, lc, book)
-      if (u) out.push(u)
+      if (u && (!since || u.ts > since)) out.push(u)
       if (out.length >= max) break
     }
     onProgress(out.length)
@@ -108,11 +130,11 @@ function parseChessCom(g: any, lc: string, book: Book | null): UGame | null {
   if (sans.length < 4) return null
   const [bs, is] = String(g.time_control).split('+')
   const baseS = parseInt(bs, 10) || 0, inc = parseInt(is ?? '0', 10) || 0
-  const spent: number[] = []
+  const spent: number[] = [], left: number[] = []
   if (clks.length === sans.length) {
     for (let i = color; i < sans.length; i += 2) {
-      if (i < 2) { spent.push(0); continue }          // first moves are not timed
-      spent.push(Math.max(0, clks[i - 2] + inc - clks[i]))
+      spent.push(i < 2 ? 0 : Math.max(0, clks[i - 2] + inc - clks[i]))   // first moves are not timed
+      left.push(clks[i])
     }
   }
   const draws = ['agreed', 'repetition', 'stalemate', 'insufficient', '50move', 'timevsinsufficient']
@@ -121,8 +143,8 @@ function parseChessCom(g: any, lc: string, book: Book | null): UGame | null {
   const term = res === 0.5 ? 'draw' : loserResult === 'checkmated' ? 'mate' : loserResult === 'resigned' ? 'resign' : (loserResult === 'timeout' || loserResult === 'abandoned') ? 'time' : 'other'
   const named = openingAlong(book, sans.slice(0, 40))
   return {
-    id: String(g.url).split('/').pop() ?? '', tc, color: color as 0 | 1, res: res as 1 | 0.5 | 0, term, plies: sans.length,
-    opening: named?.name ?? '?', base: baseS, inc, rating: me.rating ?? null, opp: opp.rating ?? null, spent, sans,
+    id: 'cc' + (String(g.url).split('/').pop() ?? ''), platform: 'chesscom', ts: (g.end_time ?? 0) * 1000, tc, color: color as 0 | 1, res: res as 1 | 0.5 | 0, term, plies: sans.length,
+    opening: named?.name ?? '?', opPly: named?.ply ?? 0, base: baseS, inc, rating: me.rating ?? null, opp: opp.rating ?? null, oppName: opp.username ?? 'Anonymous', spent, left, sans,
   }
 }
 

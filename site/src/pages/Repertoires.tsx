@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import HoverBoard from '../components/HoverBoard'
 import { Chip, Filter, Loading, PageHead, Segmented, WDL } from '../components/ui'
+import type { OpeningsFile } from '../lib/types'
 import { useData } from '../lib/data'
 import { TCS, num, openingPath, pct, slug } from '../lib/format'
 
@@ -10,6 +12,8 @@ type Reps = Record<string, Gm[]>
 
 export default function Repertoires() {
   const { data } = useData<Reps>('gm/repertoires.json')
+  const index = useData<OpeningsFile>('openings.json').data
+  const byKey = new Map((index?.openings ?? []).map((o) => [o.key, o]))
   const avail = data ? TCS.filter((t) => data[t]?.length) : []
   const [tc, setTc] = useState<(typeof TCS)[number]>('Bullet')
   const [open, setOpen] = useState<Record<string, boolean>>({})
@@ -47,7 +51,8 @@ export default function Repertoires() {
                   const to = o.page ? openingPath(o.key) : `${openingPath(o.key)}?name=${encodeURIComponent(o.key)}`
                   return (
                     <div className="opening-line" key={o.key}>
-                      <Link to={to} className="link" style={{ fontWeight: 600, color: 'var(--ink)' }}>{o.key}</Link>
+                      <HoverBoard as="div" line={byKey.get(o.key)?.line} next={(byKey.get(o.key)?.next ?? []) as [string, number][]} title={o.key} caption={byKey.get(o.key)?.plan}>
+                        <Link to={to} className="link dotted" style={{ fontWeight: 600, color: 'var(--ink)' }}>{o.key}</Link></HoverBoard>
                       <div><WDL w={o.w} d={o.d} l={o.l} /><div className="tiny muted num" style={{ marginTop: 3 }}>{pct(o.w / o.n)} · {pct(o.d / o.n)} · {pct(o.l / o.n)}</div></div>
                       <div className="small muted num">{o.n} games<br />{side === 'Both' ? 'both colours' : `as ${side}`}</div>
                       <div className="desc small ink2">

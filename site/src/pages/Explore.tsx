@@ -2,6 +2,7 @@ import { Chess } from 'chess.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import Board from '../components/Board'
+import HoverBoard from '../components/HoverBoard'
 import Icon from '../components/Icon'
 import { Chip, PageHead, WDL } from '../components/ui'
 import { openingAlong, posKey, useBook } from '../lib/book'
@@ -26,6 +27,10 @@ function replay(sans: string[]) {
   return { fens, sans: ok, squares }
 }
 
+function fenAfterMove(fen: string, san: string) {
+  try { const g = new Chess(fen); g.move(san); return g.fen() } catch { return fen }
+}
+
 function pvToSan(fen: string, uci: string[], max = 7) {
   const g = new Chess(fen)
   const out: string[] = []
@@ -45,7 +50,8 @@ export default function Explore() {
   const [sp, setSp] = useSearchParams()
   const initial = useMemo(() => replay((sp.get('line') ?? '').split('_').filter(Boolean)), []) // eslint-disable-line react-hooks/exhaustive-deps
   const [line, setLine] = useState<string[]>(initial.sans)
-  const [cursor, setCursor] = useState(initial.sans.length)
+  const atParam = sp.get('at')
+  const [cursor, setCursor] = useState(atParam != null && !isNaN(+atParam) ? Math.min(initial.sans.length, +atParam) : initial.sans.length)
   const [flipped, setFlipped] = useState(false)
   const [info, setInfo] = useState<EngineInfo | null>(null)
   const engine = useRef<Engine | null>(null)
@@ -62,12 +68,12 @@ export default function Explore() {
   // keep the URL shareable
   useEffect(() => {
     const v = line.join('_')
-    if ((sp.get('line') ?? '') !== v) setSp(v ? { line: v } : {}, { replace: true })
+    if ((sp.get('line') ?? '') !== v) setSp(v ? { line: v } : {}, { replace: true })   // a new line drops any review marker
   }, [line]) // eslint-disable-line react-hooks/exhaustive-deps
   // react to links elsewhere in the app that load a line
   useEffect(() => {
     const ext = (sp.get('line') ?? '')
-    if (ext !== line.join('_')) { const r = replay(ext.split('_').filter(Boolean)); setLine(r.sans); setCursor(r.sans.length) }
+    if (ext !== line.join('_')) { const r = replay(ext.split('_').filter(Boolean)); const at = sp.get('at'); setLine(r.sans); setCursor(at != null && !isNaN(+at) ? Math.min(r.sans.length, +at) : r.sans.length) }
   }, [sp]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // engine
@@ -184,7 +190,7 @@ export default function Explore() {
                       const mw = whiteToMove ? w : l, ml = whiteToMove ? l : w
                       return (
                         <tr key={san} className="click" onClick={() => play(san)}>
-                          <td>{san}</td>
+                          <td><HoverBoard fen={fenAfterMove(fen, san)} flipped={flipped} title={`${whiteToMove ? '' : '…'}${san}`} caption={`${num(n)} games · ${st === 'outrageous' ? 'a blunder' : st}`}><span>{san}</span></HoverBoard></td>
                           <td className="r">{num(n)}</td>
                           <td><WDL w={mw} d={d} l={ml} /></td>
                           <td className="r">{med == null ? '–' : (med / 100 > 0 ? '+' : med < 0 ? '−' : '') + Math.abs(med / 100).toFixed(2)}</td>

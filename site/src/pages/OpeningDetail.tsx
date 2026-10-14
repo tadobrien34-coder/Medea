@@ -3,6 +3,10 @@ import { useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ChartCard, LineChart } from '../components/charts/Charts'
 import Icon from '../components/Icon'
+import OpeningBoard from '../components/OpeningBoard'
+import VariationCompare from '../components/VariationCompare'
+import WrongPanel from '../components/WrongPanel'
+import HoverBoard from '../components/HoverBoard'
 import { Chip, HBars, Loading, PageHead, Segmented, Stat, WDL } from '../components/ui'
 import { posKey } from '../lib/book'
 import { useData } from '../lib/data'
@@ -15,6 +19,7 @@ export default function OpeningDetail() {
   const [sp] = useSearchParams()
   const { data: o, error } = useData<OpeningDetailFile>(`openings/${level}-${slug}.json`)
   const [mode, setMode] = useState<'move' | 'ply'>('move')
+  const [targets, setTargets] = useState<{ you: [string, number][]; them: [string, number][] } | null>(null)
   const tree = useData<TreeFile>('tree.json').data
   const gms = useData<GmOpeningsFile>('gm/openings.json').data
   const index = useData<OpeningsFile>('openings.json').data
@@ -78,16 +83,28 @@ export default function OpeningDetail() {
       />
 
       <div className="stack-lg">
-        <section className="card card-pad">
-          <div className="section-title">Summary</div>
-          <ul className="bullets">{o.summary.map((s, i) => <li key={i}>{s}</li>)}</ul>
-        </section>
-
-        <div className="grid-4">
-          <Stat label={`Score for ${sideName}`} value={pct(o.score)} hint={<WDL w={o.wdl[0]} d={o.wdl[1]} l={o.wdl[2]} />} />
-          <Stat label="Median eval, moves 5–8" value={signed(o.obj, 2)} hint={`${o.rel_obj >= 0 ? '+' : '−'}${Math.abs(o.rel_obj).toFixed(2)} vs the average ${sideName.toLowerCase()} opening`} />
-          <Stat label="Steady edge (+1.0)" value={o.edge.move ? `Move ${o.edge.move}` : '–'} hint={`${pct(o.edge.share)} of games get there`} />
-          <Stat label="Winning advantage (+6.0)" value={o.win.move ? `Move ${o.win.move}` : '–'} hint={`${pct(o.win.share)} of games get there`} />
+        <div className="opening-top">
+          {o.line && <OpeningBoard line={o.line} side={o.side} heat={o.heat} tree={tree} onTargets={setTargets} />}
+          <div className="stack">
+            <section className="card card-pad">
+              <div className="section-title">Summary</div>
+              <ul className="bullets">{o.summary.map((s, i) => <li key={i}>{s}</li>)}</ul>
+              {o.plan && <p className="small ink2" style={{ marginTop: 12 }}><strong style={{ color: 'var(--ink)' }}>Game plan.</strong> {o.plan}</p>}
+              {targets && (targets.you.length > 0 || targets.them.length > 0) && (
+                <p className="small ink2" style={{ marginTop: 8 }}>
+                  <strong style={{ color: 'var(--ink)' }}>Where material is won.</strong>{' '}
+                  {targets.you.length > 0 && <>You: {targets.you.map(([q, v]) => `${q} (${v.toFixed(1)}/100)`).join(', ')}. </>}
+                  {targets.them.length > 0 && <>Them: {targets.them.map(([q, v]) => `${q} (${v.toFixed(1)}/100)`).join(', ')}.</>}
+                </p>
+              )}
+            </section>
+            <div className="grid-2" style={{ gap: 12 }}>
+              <Stat label={`Score for ${sideName}`} value={pct(o.score)} hint={<WDL w={o.wdl[0]} d={o.wdl[1]} l={o.wdl[2]} />} />
+              <Stat label="Median eval, moves 5–8" value={signed(o.obj, 2)} hint={`${o.rel_obj >= 0 ? '+' : '−'}${Math.abs(o.rel_obj).toFixed(2)} vs the average ${sideName.toLowerCase()} opening`} />
+              <Stat label="Steady edge (+1.0)" value={o.edge.move ? `Move ${o.edge.move}` : '–'} hint={`${pct(o.edge.share)} of games get there`} />
+              <Stat label="Winning advantage (+6.0)" value={o.win.move ? `Move ${o.win.move}` : '–'} hint={`${pct(o.win.share)} of games get there`} />
+            </div>
+          </div>
         </div>
 
         <ChartCard
@@ -101,6 +118,8 @@ export default function OpeningDetail() {
             xFormat={(x) => String(mode === 'ply' ? Math.ceil(x / 2) : x)} tipHeader={(x) => (mode === 'ply' ? `Move ${moveLabel(x)}` : `After move ${x}`)}
             yFormat={(v) => signed(v, 1)} xTickCount={9} />
         </ChartCard>
+
+        <WrongPanel o={o} />
 
         <div className="grid-2">
           <section className="card">
@@ -192,18 +211,7 @@ export default function OpeningDetail() {
           </section>
         )}
 
-        {kids.length > 0 && (
-          <section className="card">
-            <div className="card-head"><h3>Variations</h3></div>
-            <div style={{ padding: '4px 8px 10px' }}>
-              {kids.slice(0, 14).map((k) => (
-                <Link key={k.key} to={openingPath(k.key)} className="tactic-row" style={{ gridTemplateColumns: 'minmax(0,1fr) auto auto' }}>
-                  <span style={{ fontWeight: 550 }}>{k.key.split(': ').slice(1).join(': ')}</span>
-                  <span className="small muted num">{pct(k.score)} for {k.side === 0 ? 'White' : 'Black'} · {num(k.n)}</span><Chip tone={toneOf(k.verdict)}>{k.verdict}</Chip>
-                </Link>))}
-            </div>
-          </section>
-        )}
+        {kids.length > 0 && <VariationCompare items={kids} baseScore={o.score} family={o.key} familySide={o.side} />}
       </div>
     </>
   )

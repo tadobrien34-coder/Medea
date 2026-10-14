@@ -25,6 +25,9 @@ def primary(tags):
 
 
 
+INIT_IDS = {sq: chess.square_name(sq) for sq in chess.Board().piece_map()}
+
+
 def mat_of(b):
     s = 0
     for t in (PAWN, KNIGHT, BISHOP, ROOK, QUEEN):
@@ -230,14 +233,32 @@ def board_pass(f, want_tree=True):
     b = chess.Board()
     moves, mats, edges, capv = [], [0], [], []
     n = f.n
+    ident = dict(INIT_IDS)                       # square -> id of the piece (the square it started on)
+    trk = {'from': [], 'to': [], 'pid': [], 'pt': [], 'cap': [], 'cpid': [], 'loss': []}
     try:
         for i, san in enumerate(f.sans):
             mv = b.parse_san(san)
             parent = None
             if want_tree and i < TREE_DEPTH:
                 parent = b.board_fen() + (' w ' if b.turn else ' b ') + b.castling_xfen()
-            ct = PAWN if b.is_en_passant(mv) else b.piece_type_at(mv.to_square)
+            ep = b.is_en_passant(mv)
+            ct = PAWN if ep else b.piece_type_at(mv.to_square)
             capv.append(VAL[ct] if ct else 0)
+            # piece tracking
+            pt0 = b.piece_type_at(mv.from_square)
+            cap_sq = chess.square(chess.square_file(mv.to_square), chess.square_rank(mv.from_square)) if ep else mv.to_square
+            pid = ident.pop(mv.from_square, None)
+            cpid = ident.pop(cap_sq, None) if ct else None
+            if b.is_castling(mv):
+                rank = chess.square_rank(mv.from_square)
+                rf, rt = (7, 5) if chess.square_file(mv.to_square) == 6 else (0, 3)
+                rid = ident.pop(chess.square(rf, rank), None)
+                if rid:
+                    ident[chess.square(rt, rank)] = rid
+            ident[mv.to_square] = pid
+            trk['from'].append(mv.from_square); trk['to'].append(mv.to_square)
+            trk['pid'].append(chess.parse_square(pid) if pid else -1); trk['pt'].append(pt0)
+            trk['cap'].append(ct or 0); trk['cpid'].append(chess.parse_square(cpid) if cpid else -1)
             moves.append(mv)
             b.push(mv)
             mats.append(mat_of(b))
@@ -245,9 +266,14 @@ def board_pass(f, want_tree=True):
                 child = b.board_fen() + (' w ' if b.turn else ' b ') + b.castling_xfen()
                 edges.append((parent, san, child, int(f.cp[i]) if f.has_eval else None))
     except Exception:
-        return edges, [], False
+        return edges, [], False, trk
+    # pieces lost: (ply, colour that lost it, type, id, square, capturer type, 1 = not recaptured at once)
+    for i in range(min(n, len(trk['cap']), 90)):
+        if trk['cap'][i]:
+            traded = i + 1 < n and i + 1 < len(trk['cap']) and trk['cap'][i + 1] > 0 and trk['to'][i + 1] == trk['to'][i]
+            trk['loss'].append((i, 1 - (i % 2), trk['cap'][i], trk['cpid'][i], trk['to'][i], trk['pt'][i], 0 if traded else 1))
     if not f.has_eval:
-        return edges, [], True
+        return edges, [], True, trk
     final_board = b
     events = []
     cp, p = f.cp, f.p
@@ -316,7 +342,11 @@ def board_pass(f, want_tree=True):
         if tags:
             if is_cand:
                 last_cand[side] = i
-            events.append((i, side, sorted(tags)))
+            cm = 0
+            for j in (i, i + 2, i + 4):
+                if j < n and 'x' in f.sans[j]:
+                    cm |= 1 << moves[j].to_square
+            events.append((i, side, sorted(tags), cm))
         b2.push(mv)
     # defensive resources that save half a point
     if rec['r'] == '1/2-1/2' and n >= 12:
@@ -325,18 +355,18 @@ def board_pass(f, want_tree=True):
             if ew[max(0, n - 14):n - 6].min() <= -2.0:
                 own = [i for i in range(n - 1, -1, -1) if i % 2 == side][:3]
                 if all(f.chk[i] for i in own):
-                    events.append((own[-1], side, ['perpetual']))
+                    events.append((own[-1], side, ['perpetual'], 0))
         if final_board.is_stalemate():
             sw = (n - 1) % 2                                  # side that delivered the stalemate
             ahead = p[max(0, n - 6):n].mean() * (1 if sw == 0 else -1)
             if ahead >= 2.0:
-                events.append((n - 1, 1 - sw, ['stalemate']))
-    return edges, events, True
+                events.append((n - 1, 1 - sw, ['stalemate'], 0))
+    return edges, events, True, trk
 
 
 def event_stats(f, ev):
     """Numeric outcome record for a tactic event (ply, side, tags)."""
-    i, side, tags = ev
+    i, side, tags = ev[0], ev[1], ev[2]
     n, sgn = f.n, (1 if side == 0 else -1)
     e = f.cp * sgn / 100.0
     e_prev = e[i - 1] if i >= 1 else INIT_CP / 100.0

@@ -9,6 +9,13 @@ import Tactics from './pages/Tactics'
 import Players from './pages/Players'
 import Repertoires from './pages/Repertoires'
 import MyGames from './pages/MyGames'
+import MyOpenings from './pages/MyOpenings'
+import MyTree from './pages/MyTree'
+import MyTime from './pages/MyTime'
+import Mistakes from './pages/Mistakes'
+import Practice from './pages/Practice'
+import Play from './pages/Play'
+import { useUser } from './lib/userdata'
 import Method from './pages/Method'
 import Updates from './pages/Updates'
 import { VERSION } from './version'
@@ -20,7 +27,14 @@ const NAV: { to: string; label: string; icon: string; end?: boolean }[] = [
   { to: '/tactics', label: 'Tactics', icon: 'bolt' },
   { to: '/players', label: 'Players & time', icon: 'clock' },
   { to: '/repertoires', label: 'GM repertoires', icon: 'crown' },
-  { to: '/me', label: 'My games', icon: 'user' },
+  { to: '/play', label: 'Play vs computer', icon: 'board' },
+]
+const ME = [
+  { to: '/me', label: 'My games', icon: 'user', end: true },
+  { to: '/me/openings', label: 'My openings', icon: 'book' },
+  { to: '/me/tree', label: 'My opening tree', icon: 'levels' },
+  { to: '/me/time', label: 'My time', icon: 'clock' },
+  { to: '/me/mistakes', label: 'Frequent mistakes', icon: 'bolt' },
 ]
 const ABOUT = [
   { to: '/method', label: 'Method', icon: 'info' },
@@ -44,6 +58,7 @@ export default function App() {
   const [open, setOpen] = useState(false)
   const loc = useLocation()
   const { dark, toggle } = useTheme()
+  const user = useUser()
   useEffect(() => { setOpen(false); window.scrollTo(0, 0) }, [loc.pathname])
   return (
     <div className="shell">
@@ -59,6 +74,8 @@ export default function App() {
         </div>
         <nav className="nav">
           {NAV.map((n) => <NavLink key={n.to} to={n.to} end={n.end}><Icon name={n.icon} />{n.label}</NavLink>)}
+          <div className="nav-group">{user.linked ? `Me · ${user.profile.lichess ?? user.profile.chesscom}` : 'Me'}</div>
+          {ME.map((n) => <NavLink key={n.to} to={n.to} end={n.end}><Icon name={n.icon} />{n.label}</NavLink>)}
           <div className="nav-group">About</div>
           {ABOUT.map((n) => <NavLink key={n.to} to={n.to}><Icon name={n.icon} />{n.label}</NavLink>)}
         </nav>
@@ -79,6 +96,12 @@ export default function App() {
           <Route path="/players/:id" element={<Players />} />
           <Route path="/repertoires" element={<Repertoires />} />
           <Route path="/me" element={<MyGames />} />
+          <Route path="/me/openings" element={<MyOpenings />} />
+          <Route path="/me/tree" element={<MyTree />} />
+          <Route path="/me/time" element={<MyTime />} />
+          <Route path="/me/mistakes" element={<Mistakes />} />
+          <Route path="/me/practice" element={<Practice />} />
+          <Route path="/play" element={<Play />} />
           <Route path="/method" element={<Method />} />
           <Route path="/updates" element={<Updates />} />
           <Route path="*" element={<Explore />} />

@@ -299,3 +299,19 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
 
 .cand th, .cand td { padding-left: 8px; padding-right: 8px; }
 .cand .wdl { min-width: 70px; }
+
+/* ---------- hover board preview ---------- */
+.hover-board {
+  position: fixed; z-index: 60; width: 252px; padding: 14px 14px 12px; background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28); pointer-events: none; animation: hbIn 0.12s ease-out;
+}
+.hover-board .hb-title { font-weight: 600; margin-top: 10px; line-height: 1.3; }
+.hover-board .hb-cap { color: var(--ink-2); font-size: 12.5px; margin-top: 4px; line-height: 1.45; }
+@keyframes hbIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.dotted { text-decoration: underline dotted var(--axis); text-underline-offset: 4px; }
+
+.wrong-grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 24px; padding: 16px 20px 20px; align-items: start; }
+@media (max-width: 760px) { .wrong-grid { grid-template-columns: 1fr; } }
+.opening-top { display: grid; grid-template-columns: minmax(0, 460px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 1000px) { .opening-top { grid-template-columns: 1fr; } }
+input[type='range'] { accent-color: var(--accent); }

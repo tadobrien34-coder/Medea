@@ -12,7 +12,8 @@ How chess games are won and lost at every rating, built from real Lichess games.
 | **Tactics** | Twenty-two tactics ranked by how often they produce a winning advantage, with how to recognise them, hold the edge, and avoid the blunders that follow. |
 | **Players & time** | Time per move, flag % and blunder % for the strongest players. |
 | **GM repertoires** | Top-rated players per time control, their most played openings, results, and how they win and lose. |
-| **My games** | Link a Lichess or Chess.com username (public API, in your browser) to see your openings by time control. |
+| **Play vs computer** | Start from any opening and play Stockfish at a rating you choose. |
+| **My games / openings / tree / time / mistakes** | Link a Lichess or Chess.com username once. Games are saved in your browser; sort by opening, see where you blundered, analyse with the in-browser engine, find repeated opening mistakes and missed tactics, and practise them. |
 | **Method / Updates** | Definitions, the winning-advantage test, sample sizes, and the changelog. |
 
 ## Layout
