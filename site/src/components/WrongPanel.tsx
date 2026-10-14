@@ -3,6 +3,7 @@ import BoardView from './BoardView'
 import { Chip, Segmented } from './ui'
 import { PK, PIECE_PLURAL, PIECE_WORD, PieceKey, joinList, pieceName, pc } from '../lib/pieces'
 import { fenAfter } from '../lib/positions'
+import { RING, TINT } from '../lib/palette'
 import type { OpeningDetailFile } from '../lib/types'
 
 type Who = 'you' | 'them'
@@ -25,9 +26,9 @@ export default function WrongPanel({ o }: { o: OpeningDetailFile }) {
   const spots: [string, number][] = mode === 'slip' ? (s?.to ?? []) : (l?.sq ?? [])
   const maxv = Math.max(0.0001, ...spots.map((x) => x[1]))
   const tint: Record<string, string> = {}
-  spots.forEach(([q, v]) => { tint[q] = `rgba(${who === 'you' ? '235,104,52' : '27,175,122'},${(0.25 + 0.5 * (v / maxv)).toFixed(2)})` })
+  spots.forEach(([q, v]) => { tint[q] = TINT.slip.replace(/[\d.]+\)$/, `${(0.3 + 0.5 * (v / maxv)).toFixed(2)})`) })
   const rings: Record<string, string> = {}
-  ;(mode === 'slip' ? s?.ids : l?.ids)?.forEach(([q]) => { rings[q] = 'rgba(42,120,214,0.95)' })
+  ;(mode === 'slip' ? s?.ids : l?.ids)?.forEach(([q]) => { rings[q] = RING.piece })
 
   const name = (id: string) => pieceName(cur, id)
   const slipTxt = s && [
@@ -49,7 +50,7 @@ export default function WrongPanel({ o }: { o: OpeningDetailFile }) {
         <h3>Where it goes wrong</h3>
         <Segmented value={who} onChange={setWho} options={[{ value: 'them', label: 'Their pieces' }, { value: 'you', label: 'Your pieces' }]} label="Whose pieces" />
       </div>
-      <div className="card-sub">Pick a piece. The board shows where it lands when the lead slips, or where it is captured. Rings mark which one it is.</div>
+      <div className="card-sub">Pick a piece. Orange squares: where it lands when the lead slips, or where it is captured. Red rings: which one it is.</div>
       <div className="row" style={{ padding: '12px 20px 0', gap: 6 }}>
         {keys.map((k) => (
           <button key={k} className="chip" aria-pressed={k === cur} onClick={() => setPk(k)}>
@@ -59,11 +60,11 @@ export default function WrongPanel({ o }: { o: OpeningDetailFile }) {
         <span style={{ marginLeft: 'auto' }}><Segmented value={mode} onChange={setMode} options={[{ value: 'slip', label: 'Where it slips' }, { value: 'lost', label: 'Where it is lost' }]} label="View" /></span>
       </div>
       <div className="wrong-grid">
-        <div><BoardView fen={fen} size={300} flipped={ownerSide === 1 ? true : false} tint={tint} rings={rings} id={`wrong-${who}-${cur}-${mode}`} notation /></div>
+        <div><BoardView fen={fen} size={300} flipped={o.side === 1} tint={tint} rings={rings} id={`wrong-${who}-${cur}-${mode}`} notation /></div>
         <div style={{ minWidth: 0 }}>
           <ul className="bullets">{(mode === 'slip' ? slipTxt : lostTxt)?.map((t, i) => <li key={i}>{t}</li>) ?? <li className="muted">Not enough games for this piece.</li>}</ul>
           <div className="row" style={{ marginTop: 14, gap: 6 }}>
-            {(mode === 'slip' ? s?.ids : l?.ids)?.slice(0, 3).map(([q, v]) => <Chip key={q}><i className="dot" style={{ boxShadow: 'inset 0 0 0 2px rgba(42,120,214,.95)', borderRadius: 2, background: 'transparent' }} />{name(q)} · {q}{mode === 'lost' ? ` · ${(v as number).toFixed(0)}/100` : ` · ${pc(v)}`}</Chip>)}
+            {(mode === 'slip' ? s?.ids : l?.ids)?.slice(0, 3).map(([q, v]) => <Chip key={q}><i className="dot" style={{ boxShadow: `inset 0 0 0 2px ${RING.piece}`, borderRadius: 2, background: 'transparent' }} />{name(q)} · {q}{mode === 'lost' ? ` · ${(v as number).toFixed(0)}/100` : ` · ${pc(v)}`}</Chip>)}
           </div>
         </div>
       </div>

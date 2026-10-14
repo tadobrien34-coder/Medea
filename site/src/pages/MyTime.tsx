@@ -1,113 +1,92 @@
 import { useMemo, useState } from 'react'
 import { BarChart, ChartCard, LineChart } from '../components/charts/Charts'
 import LinkCard from '../components/LinkCard'
+import RangeFilter from '../components/RangeFilter'
 import { Filter, PageHead, Segmented, Stat } from '../components/ui'
-import type { UGame } from '../lib/account'
-import { useData } from '../lib/data'
-import { TCS, num, pct, secs } from '../lib/format'
-import type { LevelsFile } from '../lib/types'
+import { TCS, YOU, num, pct, secAxis, secs } from '../lib/format'
+import { avgRating, usePeers } from '../lib/peers'
+import { userStats } from '../lib/userstats'
 import { useUser } from '../lib/userdata'
 
 const BINS = [0, 1, 2, 3, 5, 10, 20, 40, 1e9]
-const BIN_LABELS = ['<1s', '1s', '2s', '3–4s', '5–9s', '10–19s', '20–39s', '40s+']
-const winPct = (cp: number) => 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * Math.max(-1000, Math.min(1000, cp)))) - 1)
+const BIN_LABELS = ['<1s', '1–2s', '2–3s', '3–5s', '5–10s', '10–20s', '20–40s', '40s+']
 
 export default function MyTime() {
   const u = useUser()
   const present = TCS.filter((t) => u.games.some((g) => g.tc === t && g.spent.length))
   const [tc, setTc] = useState<(typeof TCS)[number] | null>(null)
   const cur = tc && present.includes(tc) ? tc : present.includes('Blitz') ? 'Blitz' : present[0]
-  const levels = useData<LevelsFile>(cur ? `levels_${cur.toLowerCase()}.json` : null).data
   const games = useMemo(() => u.games.filter((g) => g.tc === cur && g.spent.length > 4), [u.games, cur])
+  const rating = avgRating(games)
+  const peers = usePeers(cur ?? null, rating)
+  const me = useMemo(() => userStats(games), [games])
 
-  const stats = useMemo(() => {
-    const K = 60
-    const sum = new Array(K).fill(0), cnt = new Array(K).fill(0), lsum = new Array(K).fill(0)
-    const hist = new Array(BINS.length - 1).fill(0)
-    let total = 0, phase = [0, 0, 0], moves = 0
-    const blun = [0, 0, 0, 0, 0].map(() => ({ n: 0, b: 0 }))   // by share of clock left
-    for (const g of games) {
-      const start = g.left[0] || g.base || 1
-      g.spent.forEach((s, k) => {
-        if (k < K) { sum[k] += s; cnt[k]++; lsum[k] += (g.left[k] / start) * 100 }
-        if (k > 0) { total += s; phase[k < 10 ? 0 : k < 30 ? 1 : 2] += s; moves++; const b = BINS.findIndex((x, i) => s >= x && s < BINS[i + 1]); if (b >= 0) hist[b]++ }
-      })
-      if (g.evs && g.evs.length === g.sans.length) {
-        for (let k = 1; k < g.spent.length; k++) {
-          const i = g.color + 2 * k
-          if (i >= g.evs.length) break
-          const prev = g.evs[i - 1], drop = g.color === 0 ? winPct(prev) - winPct(g.evs[i]) : winPct(g.evs[i]) - winPct(prev)
-          const share = (g.left[k - 1] / start) * 100
-          const bin = share >= 60 ? 0 : share >= 40 ? 1 : share >= 20 ? 2 : share >= 10 ? 3 : 4
-          blun[bin].n++; if (drop >= 30) blun[bin].b++
-        }
-      }
-    }
-    let kk = 0
-    for (let i = 0; i < K; i++) if (cnt[i] >= 8) kk = i + 1
-    return {
-      per: sum.slice(0, kk).map((s: number, i: number) => s / cnt[i]), left: lsum.slice(0, kk).map((s: number, i: number) => s / cnt[i]),
-      hist: hist.map((h: number) => h / Math.max(1, moves)), avg: moves ? total / moves : null,
-      phase: phase.map((p) => p / Math.max(1, total)), blun,
-    }
+  const hist = useMemo(() => {
+    const h = new Array(BINS.length - 1).fill(0); let n = 0; const phase = [0, 0, 0]; let tot = 0
+    for (const g of games) g.spent.forEach((s, k) => {
+      if (k === 0) return
+      n++; tot += s; phase[k < 10 ? 0 : k < 30 ? 1 : 2] += s
+      const b = BINS.findIndex((x, i) => s >= x && s < BINS[i + 1]); if (b >= 0) h[b]++
+    })
+    return { share: h.map((x: number) => x / Math.max(1, n)), phase: phase.map((p) => p / Math.max(1, tot)) }
   }, [games])
 
-  if (!u.linked) return <><PageHead title="My time" sub="How you spend your clock." /><LinkCard /></>
-  if (!cur) return <><PageHead title="My time" sub="How you spend your clock." /><div className="note">None of your saved games have clock data yet. Press Refresh on My games.</div></>
+  if (!u.linked) return <><PageHead title="My time" /><LinkCard /></>
+  if (!cur) return <><PageHead title="My time" /><div className="note">None of your saved games have clock data yet. Press Refresh on My games.</div></>
 
-  const avgRating = Math.round(games.reduce((a, g) => a + (g.rating ?? 0), 0) / Math.max(1, games.filter((g) => g.rating).length))
-  const group = levels?.['400']?.find((e) => !e.thin && avgRating >= e.lo && (e.hi == null || avgRating <= e.hi))
-  const xs = stats.per.map((_, i) => i + 1)
-  const peerPer = group ? group.time.per_move_by_move.slice(0, xs.length) : []
-  const peerLeft = group ? group.time.clock_pct_by_move.slice(0, xs.length) : []
+  const xs = me.perMove.map((_, i) => i + 1)
+  const g1 = peers.group?.time, top = peers.top?.time
+  const series = (mine: (number | null)[], pick: (t: NonNullable<typeof g1>) => (number | null)[]) => [
+    { key: 'me', name: 'You', color: YOU, values: mine, dotted: true },
+    ...(g1 ? [{ key: 'peer', name: `Players at ${peers.group!.label}`, color: 'var(--s1)', values: pick(g1).slice(0, xs.length) }] : []),
+    ...(top ? [{ key: 'top', name: '2800+', color: 'var(--s2)', values: pick(top).slice(0, xs.length) }] : []),
+  ]
+  const perMove = series(me.perMove, (t) => t.per_move_by_move)
+  const clock = series(me.clockLeft, (t) => t.clock_pct_by_move)
+  const legend = perMove.map((s) => ({ name: s.name, color: s.color }))
   const flagged = games.filter((g) => g.res === 0 && g.term === 'time').length
   const losses = games.filter((g) => g.res === 0).length
   const winsOnTime = games.filter((g) => g.res === 1 && g.term === 'time').length
-  const fast = stats.hist.slice(0, 3).reduce((a, b) => a + b, 0)
-  const lines = [
-    stats.phase[0] > 0.3 ? `${pct(stats.phase[0])} of your thinking time goes on the first 10 moves. That is a lot for an opening you already know.` : null,
-    losses >= 8 && flagged / losses >= 0.2 ? `${pct(flagged / losses)} of your losses are on the clock. Moving a little faster early would save games.` : null,
-    group && stats.avg != null && group.time.avg_per_move ? `You average ${secs(stats.avg)} a move; players around ${group.label} average ${secs(group.time.avg_per_move)}.` : null,
-    fast > 0.4 ? `${pct(fast)} of your moves take under 3 seconds. Fast is fine in the opening, risky when the position is sharp.` : null,
-  ].filter(Boolean) as string[]
-  const labels = ['60%+', '40–60%', '20–40%', '10–20%', '<10%']
+  const pctLabels = ['<5%', '5–10%', '10–20%', '20–40%', '40–60%', '60–80%', '80–100%', '100%+']
+  const gp = peers.group?.blunder.by_clock_pct ?? []
 
   return (
     <>
-      <PageHead title="My time" sub="How you spend your clock across your saved games, set against players at your rating." />
-      <div className="filters"><Filter label="Time control"><Segmented value={cur} onChange={setTc} options={present.map((t) => ({ value: t, label: `${t} · ${u.games.filter((g) => g.tc === t).length}` }))} /></Filter></div>
+      <PageHead title="My time" sub="Your clock against players at your rating." />
+      <div className="filters"><Filter label="Time control"><Segmented value={cur} onChange={setTc} options={present.map((t) => ({ value: t, label: `${t} · ${u.games.filter((g) => g.tc === t).length}` }))} /></Filter><RangeFilter /></div>
       <div className="stack-lg">
         <div className="grid-4">
-          <Stat label="Time per move" value={stats.avg != null ? secs(stats.avg) : '–'} hint={group ? `players at ${group.label}: ${secs(group.time.avg_per_move)}` : undefined} />
-          <Stat label="Lost on the clock" value={pct(losses ? flagged / losses : 0)} hint={`${flagged} of ${losses} losses`} />
-          <Stat label="Won on the clock" value={num(winsOnTime)} hint="opponents who flagged" />
-          <Stat label="Games" value={num(games.length)} hint={avgRating ? `average rating ${avgRating}` : undefined} />
+          <Stat label="Time per move" value={me.avgTime != null ? secs(me.avgTime) : '–'} hint={g1?.avg_per_move != null ? `${peers.group!.label}: ${secs(g1.avg_per_move)}${top?.avg_per_move != null ? ` · 2800+: ${secs(top.avg_per_move)}` : ''}` : undefined} />
+          <Stat label="Lost on the clock" value={pct(games.length ? flagged / games.length : 0, 1)} hint={`${flagged} of ${losses} losses · peers ${peers.flagRate != null ? pct(peers.flagRate, 1) : '–'}`} />
+          <Stat label="Blunder rate" value={me.blunderRate != null ? pct(me.blunderRate, 1) : '–'} hint={`peers ${peers.blunderRate != null ? pct(peers.blunderRate, 1) : '–'}`} />
+          <Stat label="Won on the clock" value={num(winsOnTime)} hint={`${num(games.length)} games`} />
         </div>
-        {lines.length > 0 && <section className="card card-pad"><div className="section-title">What stands out</div><ul className="bullets">{lines.map((l, i) => <li key={i}>{l}</li>)}</ul></section>}
         <div className="grid-2">
-          <ChartCard title="Time per move" sub="Seconds spent, by move number" legend={group ? [{ name: 'You', color: 'var(--s1)' }, { name: `Players at ${group.label}`, color: 'var(--s2)' }] : undefined}
-            table={{ head: ['Move', 'You', 'Peers'], rows: xs.map((x, i) => [x, `${stats.per[i].toFixed(1)}s`, peerPer[i] != null ? `${peerPer[i]!.toFixed(1)}s` : '–']) }}>
-            <LineChart xs={xs} yMin={0} height={250} yFormat={(v) => `${v.toFixed(0)}s`} tipHeader={(x) => `Move ${x}`}
-              series={[{ key: 'me', name: 'You', color: 'var(--s1)', values: stats.per }, ...(group ? [{ key: 'peer', name: `Players at ${group.label}`, color: 'var(--s2)', values: peerPer, dashed: true }] : [])]} />
+          <ChartCard title="Time per move" sub="Seconds, by move number" legend={legend}
+            table={{ head: ['Move', ...perMove.map((s) => s.name)], rows: xs.map((x, i) => [x, ...perMove.map((s) => (s.values[i] == null ? '–' : `${s.values[i]!.toFixed(1)}s`))]) }}>
+            <LineChart xs={xs} yMin={0} height={250} yFormat={secAxis} tipHeader={(x) => `Move ${x}`} series={perMove} />
           </ChartCard>
-          <ChartCard title="Clock left" sub="Share of your starting time remaining, by move number" legend={group ? [{ name: 'You', color: 'var(--s1)' }, { name: `Players at ${group.label}`, color: 'var(--s2)' }] : undefined}
-            table={{ head: ['Move', 'You', 'Peers'], rows: xs.map((x, i) => [x, `${stats.left[i].toFixed(0)}%`, peerLeft[i] != null ? `${peerLeft[i]!.toFixed(0)}%` : '–']) }}>
-            <LineChart xs={xs} yMin={0} yMax={100} height={250} yFormat={(v) => `${v.toFixed(0)}%`} tipHeader={(x) => `Move ${x}`}
-              series={[{ key: 'me', name: 'You', color: 'var(--s1)', values: stats.left }, ...(group ? [{ key: 'peer', name: `Players at ${group.label}`, color: 'var(--s2)', values: peerLeft, dashed: true }] : [])]} />
+          <ChartCard title="Clock left" sub="Share of starting time, by move number" legend={legend}
+            table={{ head: ['Move', ...clock.map((s) => s.name)], rows: xs.map((x, i) => [x, ...clock.map((s) => (s.values[i] == null ? '–' : `${s.values[i]!.toFixed(0)}%`))]) }}>
+            <LineChart xs={xs} yMin={0} yMax={100} height={250} yFormat={(v) => `${v.toFixed(0)}%`} tipHeader={(x) => `Move ${x}`} series={clock} />
           </ChartCard>
         </div>
         <div className="grid-2">
-          <ChartCard title="How long your moves take" sub="Share of your moves by time spent" table={{ head: ['Time', 'Share'], rows: BIN_LABELS.map((l, i) => [l, pct(stats.hist[i], 1)]) }}>
-            <BarChart items={BIN_LABELS.map((l, i) => ({ label: l, value: stats.hist[i] * 100 }))} yFormat={(v) => `${v.toFixed(0)}%`} height={210} tipLabel="Moves" />
+          <ChartCard title="How long your moves take" sub="Share of your moves by time spent" table={{ head: ['Time', 'Share'], rows: BIN_LABELS.map((l, i) => [l, pct(hist.share[i], 1)]) }}>
+            <BarChart items={BIN_LABELS.map((l, i) => ({ label: l, value: hist.share[i] * 100 }))} yFormat={(v) => `${v.toFixed(0)}%`} height={210} tipLabel="Moves" />
           </ChartCard>
-          <ChartCard title="Blunders by time left" sub="Share of your moves that were blunders, by clock left (analysed games)" table={{ head: ['Clock left', 'Moves', 'Blunder %'], rows: labels.map((l, i) => [l, stats.blun[i].n, stats.blun[i].n ? pct(stats.blun[i].b / stats.blun[i].n, 1) : '–']) }}>
-            <BarChart items={labels.map((l, i) => ({ label: l, value: stats.blun[i].n >= 40 ? (100 * stats.blun[i].b) / stats.blun[i].n : null, note: `${stats.blun[i].n} moves` }))} yFormat={(v) => `${v.toFixed(1)}%`} height={210} tipLabel="Blunder rate" color="var(--s2)" />
+          <ChartCard title="Blunders by clock left" sub="Plenty of time on the left, running out on the right"
+            legend={[{ name: 'You', color: YOU }, ...(gp.length ? [{ name: `Players at ${peers.group!.label}`, color: 'var(--s1)' }] : [])]}
+            table={{ head: ['Clock left', 'You', 'Peers'], rows: [7, 6, 5, 4, 3, 2, 1, 0].map((i) => [pctLabels[i], me.byPct[i] == null ? '–' : `${me.byPct[i]!.toFixed(1)}%`, gp[i]?.blunder != null ? pct(gp[i].blunder, 1) : '–']) }}>
+            <LineChart xs={[0, 1, 2, 3, 4, 5, 6, 7]} height={210} yMin={0} yFormat={(v) => `${v.toFixed(1)}%`} xTickCount={5}
+              xFormat={(i) => pctLabels[i] ?? ''} reverse
+              series={[{ key: 'me', name: 'You', color: YOU, values: me.byPct, dotted: true }, ...(gp.length ? [{ key: 'peer', name: `Players at ${peers.group!.label}`, color: 'var(--s1)', values: gp.map((b) => (b.blunder == null || b.moves < 300 ? null : b.blunder * 100)) }] : [])]} />
           </ChartCard>
         </div>
         <section className="card card-pad">
-          <div className="section-title">Where the time goes</div>
-          <div className="row" style={{ gap: 24 }}>
-            {['Moves 1–10', 'Moves 11–30', 'Moves 31+'].map((l, i) => <div key={l}><div className="small muted">{l}</div><div style={{ fontSize: 22, fontWeight: 600 }}>{pct(stats.phase[i])}</div></div>)}
+          <div className="section-title">Where your time goes</div>
+          <div className="row" style={{ gap: 28 }}>
+            {['Moves 1–10', 'Moves 11–30', 'Moves 31+'].map((l, i) => <div key={l}><div className="small muted">{l}</div><div className="big-num" style={{ fontSize: 24 }}>{pct(hist.phase[i])}</div></div>)}
           </div>
         </section>
       </div>

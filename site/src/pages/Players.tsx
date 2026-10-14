@@ -2,9 +2,12 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { BarChart, ChartCard, LineChart } from '../components/charts/Charts'
 import { Chip, Filter, HBars, Loading, Meter, PageHead, Segmented, Stat, WDL } from '../components/ui'
+import { SortState, SortTh, sortRows } from '../components/Sort'
 import { useData } from '../lib/data'
-import { PIECES, SERIES, TCS, num, pct, secs } from '../lib/format'
+import { PIECES, SERIES, TCS, num, pct, secAxis, secs } from '../lib/format'
 import { MOVE_LABELS, rangeLabel } from '../lib/levelsUtil'
+import { avgRating, usePeers } from '../lib/peers'
+import { useUser } from '../lib/userdata'
 
 export interface PlayerTc {
   rating: number | null; games: number; analysed: number; wdl: [number, number, number]
@@ -33,7 +36,21 @@ export default function Players() {
 function PlayerList({ data }: { data: PlayersFile }) {
   const [tc, setTc] = useState<(typeof TCS)[number]>('Blitz')
   const nav = useNavigate()
-  const rows = useMemo(() => data.players.filter((p) => p.tcs[tc]).sort((a, b) => (b.tcs[tc].time.score ?? -9) - (a.tcs[tc].time.score ?? -9)), [data, tc])
+  const [sort, setSort] = useState<SortState>({ k: 'score', dir: -1 })
+  const rows = useMemo(() => sortRows(data.players.filter((p) => p.tcs[tc]), (p, k) => {
+    const s = p.tcs[tc]
+    switch (k) {
+      case 'name': return p.name.toLowerCase()
+      case 'rating': return s.rating
+      case 'games': return s.games
+      case 'tpm': return s.time.avg_per_move
+      case 'flag': return s.time.flag_pct
+      case 'ahead': return s.time.flag_n >= 5 ? s.time.flag_ahead : null
+      case 'opp': return s.time.opp_flag_pct
+      case 'blunder': return s.blunder.overall
+      default: return s.time.score ?? null
+    }
+  }, sort), [data, tc, sort])
   const grade = data.grades[tc]
   const by = (id: string) => data.players.find((p) => p.id === id)!
   const tcs = TCS.filter((t) => data.players.some((p) => p.tcs[t]))
@@ -49,20 +66,25 @@ function PlayerList({ data }: { data: PlayersFile }) {
   }
   return (
     <>
-      <PageHead title="Players & time" sub="How the strongest Lichess players spend their clock: time per move, how often they flag, and how often they blunder. Click a player for the full picture." />
+      <PageHead title="Players & time" sub="Time per move, flagging and blunders for the strongest Lichess players." />
       <div className="filters"><Filter label="Time control"><Segmented value={tc} onChange={setTc} options={tcs.map((t) => ({ value: t, label: t }))} /></Filter></div>
       {grade && (
         <div className="grid-2" style={{ marginBottom: 24 }}>
-          <section className="card"><div className="card-head"><h3>Good with time</h3><Chip tone="good">flag least, outlast opponents</Chip></div><div style={{ padding: '6px 8px 10px' }}>{grade.good.map(person)}</div></section>
+          <section className="card"><div className="card-head"><h3>Good with time</h3><Chip tone="good">flag least</Chip></div><div style={{ padding: '6px 8px 10px' }}>{grade.good.map(person)}</div></section>
           <section className="card"><div className="card-head"><h3>Bad with time</h3><Chip tone="warn">flag most</Chip></div><div style={{ padding: '6px 8px 10px' }}>{grade.bad.map(person)}</div></section>
         </div>
       )}
       <section className="card">
         <div className="card-head"><h3>{tc} players</h3></div>
-        <div className="card-sub">Time score blends how rarely a player flags with how often opponents flag against them, relative to this list. Blunder rate uses analysed games only.</div>
+        <div className="card-sub">Click a heading to sort. Time score: flags rarely and outlasts opponents, relative to this list.<PeerLine tc={tc} kind="both" /></div>
         <div className="table-wrap" style={{ padding: '6px 8px 10px' }}>
           <table className="t">
-            <thead><tr><th>Player</th><th className="r">Rating</th><th className="r">Games</th><th className="r">Time / move</th><th className="r">Flag %</th><th className="r">Flag from +2</th><th className="r">Opponent flags</th><th className="r">Blunder %</th><th style={{ width: 110 }}>Time score</th></tr></thead>
+            <thead><tr>
+              <SortTh k="name" label="Player" sort={sort} onSort={setSort} first={1} /><SortTh k="rating" label="Rating" right sort={sort} onSort={setSort} /><SortTh k="games" label="Games" right sort={sort} onSort={setSort} />
+              <SortTh k="tpm" label="Time / move" right sort={sort} onSort={setSort} /><SortTh k="flag" label="Flag %" right sort={sort} onSort={setSort} first={1} />
+              <SortTh k="ahead" label="Flag from +2" right sort={sort} onSort={setSort} first={1} /><SortTh k="opp" label="Opponent flags" right sort={sort} onSort={setSort} />
+              <SortTh k="blunder" label="Blunder %" right sort={sort} onSort={setSort} first={1} /><SortTh k="score" label="Time score" sort={sort} onSort={setSort} />
+            </tr></thead>
             <tbody>
               {rows.map((p) => { const s = p.tcs[tc]; return (
                 <tr key={p.id} className="click" onClick={() => nav(`/players/${p.id}`)}>
@@ -78,6 +100,22 @@ function PlayerList({ data }: { data: PlayersFile }) {
         </div>
       </section>
     </>
+  )
+}
+
+/** How often players at the viewer's own rating flag and blunder in this time control (needs a linked account). */
+function PeerLine({ tc, kind }: { tc: string; kind: 'flag' | 'blunder' | 'both' }) {
+  const u = useUser()
+  const rating = avgRating(u.games.filter((g) => g.tc === tc))
+  const peers = usePeers(rating ? tc : null, rating)
+  if (!rating || !peers.group) return null
+  const g = peers.group
+  return (
+    <div className="hint" style={{ marginTop: 4 }}>
+      <span style={{ color: 'var(--yellow, #e3b341)' }}>At your rating ({rangeLabel(g)})</span>
+      {kind !== 'blunder' && peers.flagRate != null && <> · flag {pct(peers.flagRate, 1)}</>}
+      {kind !== 'flag' && peers.blunderRate != null && <> · blunder {pct(peers.blunderRate, 2)}</>}
+    </div>
   )
 }
 
@@ -111,6 +149,7 @@ function PlayerDetail({ data, id }: { data: PlayersFile; id: string }) {
                 <div className="label">{t}{s.rating ? ` · ${s.rating}` : ''}</div>
                 <div className="value">{secs(s.time.avg_per_move)}<small>/ move</small></div>
                 <div className="hint">Flags in {pct(s.time.flag_pct, 1)} of games · {num(s.games)} games</div>
+                <PeerLine tc={t} kind="both" />
               </button>) })}
           </div>
         </div>
@@ -118,7 +157,7 @@ function PlayerDetail({ data, id }: { data: PlayersFile; id: string }) {
         <div className="grid-2">
           <ChartCard title="Time per move" sub="Seconds spent by move number" legend={legend}
             table={{ head: ['Move', ...avail], rows: xs.map((m, i) => [m, ...perMove.map((s) => (s.values[i] == null ? '–' : s.values[i]!.toFixed(1) + 's'))]) }}>
-            <LineChart xs={xs} series={perMove} yMin={0} yFormat={(v) => `${v.toFixed(0)}s`} tipHeader={(x) => `Move ${x}`} height={240} />
+            <LineChart xs={xs} series={perMove} yMin={0} yFormat={secAxis} tipHeader={(x) => `Move ${x}`} height={240} />
           </ChartCard>
           <ChartCard title="Clock left" sub="Share of starting time remaining by move number" legend={legend}
             table={{ head: ['Move', ...avail], rows: xs.map((m, i) => [m, ...clock.map((s) => (s.values[i] == null ? '–' : s.values[i]!.toFixed(0) + '%'))]) }}>
@@ -137,16 +176,16 @@ function PlayerDetail({ data, id }: { data: PlayersFile; id: string }) {
         </div>
         <div className="grid-4">
           <Stat label="Record" value={pct(cur.wdl[0])} hint={<WDL w={cur.wdl[0]} d={cur.wdl[1]} l={cur.wdl[2]} />} />
-          <Stat label="Blunder rate" value={pct(bl.overall, 2)} hint={`${num(bl.moves)} analysed moves · mistakes ${pct(bl.mistake, 2)}`} />
+          <Stat label="Blunder rate" value={pct(bl.overall, 2)} hint={<>{`${num(bl.moves)} analysed moves · mistakes ${pct(bl.mistake, 2)}`}<PeerLine tc={tc} kind="blunder" /></>} />
           <Stat label="Checks" value={pct(cur.checks_pct, 1)} hint="of their moves" />
           <Stat label="Captures" value={pct(cur.captures_pct, 1)} hint={`plays White in ${pct(cur.white_share)} of games`} />
         </div>
         <div className="grid-2">
-          <ChartCard title="Blunder % by time left" sub="Seconds on the clock at the start of the move" table={{ head: ['Time left', 'Moves', 'Blunder %'], rows: secL.map((l, i) => [l, bl.by_clock_sec[i].moves, bl.by_clock_sec[i].blunder == null ? '–' : (bl.by_clock_sec[i].blunder! * 100).toFixed(2) + '%']) }}>
-            <BarChart items={secL.map((l, i) => ({ label: l, value: bl.by_clock_sec[i].moves >= 60 && bl.by_clock_sec[i].blunder != null ? bl.by_clock_sec[i].blunder! * 100 : null, note: `${bl.by_clock_sec[i].moves} moves` }))} yFormat={(v) => `${v.toFixed(1)}%`} height={200} tipLabel="Blunder rate" color="var(--s2)" />
+          <ChartCard title="Blunder % by time left" sub="Plenty of time on the left, running out on the right" table={{ head: ['Time left', 'Moves', 'Blunder %'], rows: secL.map((l, i) => [l, bl.by_clock_sec[i].moves, bl.by_clock_sec[i].blunder == null ? '–' : (bl.by_clock_sec[i].blunder! * 100).toFixed(2) + '%']) }}>
+            <BarChart items={secL.map((_, j) => { const i = secL.length - 1 - j; return { label: secL[i], value: bl.by_clock_sec[i].moves >= 60 && bl.by_clock_sec[i].blunder != null ? bl.by_clock_sec[i].blunder! * 100 : null, note: `${bl.by_clock_sec[i].moves} moves` } })} yFormat={(v) => `${v.toFixed(1)}%`} height={200} tipLabel="Blunder rate" color="var(--s2)" />
           </ChartCard>
-          <ChartCard title="Blunder % by share of clock left" sub="Percent of starting time remaining" table={{ head: ['Clock left', 'Moves', 'Blunder %'], rows: pctL.map((l, i) => [l, bl.by_clock_pct[i].moves, bl.by_clock_pct[i].blunder == null ? '–' : (bl.by_clock_pct[i].blunder! * 100).toFixed(2) + '%']) }}>
-            <BarChart items={pctL.map((l, i) => ({ label: l, value: bl.by_clock_pct[i].moves >= 60 && bl.by_clock_pct[i].blunder != null ? bl.by_clock_pct[i].blunder! * 100 : null, note: `${bl.by_clock_pct[i].moves} moves` }))} yFormat={(v) => `${v.toFixed(1)}%`} height={200} tipLabel="Blunder rate" color="var(--s2)" />
+          <ChartCard title="Blunder % by share of clock left" sub="Plenty on the left, running out on the right" table={{ head: ['Clock left', 'Moves', 'Blunder %'], rows: pctL.map((l, i) => [l, bl.by_clock_pct[i].moves, bl.by_clock_pct[i].blunder == null ? '–' : (bl.by_clock_pct[i].blunder! * 100).toFixed(2) + '%']) }}>
+            <BarChart items={pctL.map((_, j) => { const i = pctL.length - 1 - j; return { label: pctL[i], value: bl.by_clock_pct[i].moves >= 60 && bl.by_clock_pct[i].blunder != null ? bl.by_clock_pct[i].blunder! * 100 : null, note: `${bl.by_clock_pct[i].moves} moves` } })} yFormat={(v) => `${v.toFixed(1)}%`} height={200} tipLabel="Blunder rate" color="var(--s2)" />
           </ChartCard>
         </div>
         <div className="grid-2">

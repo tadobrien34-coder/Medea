@@ -72,6 +72,21 @@ export async function bestAt(sf: SF, g: UGame, ply: number, depth = 12): Promise
   try { return new Chess(fen).move({ from: r.best.slice(0, 2), to: r.best.slice(2, 4), promotion: r.best[4] }).san } catch { return undefined }
 }
 
+/** What the opponent could do right after the blunder, named: a free piece, a fork, a check, a trade. */
+export async function punishAt(sf: SF, g: UGame, ply: number, depth = 10): Promise<string | undefined> {
+  const chess = new Chess()
+  try { for (let i = 0; i <= ply; i++) chess.move(g.sans[i]) } catch { return undefined }
+  if (chess.isGameOver()) return 'Allowed checkmate'
+  const fen = chess.fen()
+  const r = await sf.search(fen, { depth })
+  if (!r.best) return undefined
+  return BLUNDER_TYPE[classifyMove(fen, r.best)] ?? 'Positional slip'
+}
+const BLUNDER_TYPE: Record<string, string> = {
+  Checkmate: 'Allowed checkmate', 'Free piece': 'Hung a piece', Fork: 'Walked into a fork', 'Winning trade': 'Lost to a trade',
+  'Check that wins material': 'Missed a check', Promotion: 'Allowed a promotion', Capture: 'Lost material', 'Other advantage': 'Positional slip',
+}
+
 /* ---------------------------------------------------------------- opening mistakes */
 export interface OpeningMistake {
   id: string; fen: string; san: string; uci: string; color: 0 | 1; count: number; results: [number, number, number]

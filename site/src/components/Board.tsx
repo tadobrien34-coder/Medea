@@ -1,13 +1,15 @@
 import { Chess, Square } from 'chess.js'
 import { useMemo, useState } from 'react'
 import { Chessboard } from 'react-chessboard'
+import ArrowLayer from './ArrowLayer'
 
 export interface MoveResult { san: string }
 
 /** Board with drag-and-drop and click-to-move. The parent owns the position; `onMove` receives a legal SAN move. */
-export default function Board({ fen, flipped, onMove, arrows, lastMove, interactive = true }: {
+export default function Board({ fen, flipped, onMove, arrows, lastMove, interactive = true, tint, rings }: {
   fen: string; flipped?: boolean; onMove?: (san: string) => void
   arrows?: { startSquare: string; endSquare: string; color: string }[]; lastMove?: [string, string] | null; interactive?: boolean
+  tint?: Record<string, string>; rings?: Record<string, string>
 }) {
   const [selected, setSelected] = useState<string | null>(null)
   const [promo, setPromo] = useState<{ from: string; to: string } | null>(null)
@@ -37,17 +39,19 @@ export default function Board({ fen, flipped, onMove, arrows, lastMove, interact
   const squareStyles = useMemo(() => {
     const s: Record<string, React.CSSProperties> = {}
     if (lastMove) for (const q of lastMove) s[q] = { background: 'rgba(57, 135, 229, 0.30)' }
+    if (tint) for (const [q, c] of Object.entries(tint)) s[q] = { ...(s[q] ?? {}), background: c }
+    if (rings) for (const [q, c] of Object.entries(rings)) s[q] = { ...(s[q] ?? {}), boxShadow: `inset 0 0 0 4px ${c}, inset 0 0 14px 2px ${c}` }
     if (selected) s[selected] = { background: 'rgba(57, 135, 229, 0.50)' }
     for (const t of legalTargets) {
       s[t] = { ...(s[t] ?? {}), background: `${s[t]?.background ? s[t].background + ',' : ''}radial-gradient(circle, rgba(11,11,11,.28) 20%, transparent 22%)` }
     }
     return s
-  }, [lastMove, selected, legalTargets])
+  }, [lastMove, selected, legalTargets, tint, rings])
 
   const white = game.turn() === 'w'
   const glyph: Record<string, string> = white ? { q: '♕', r: '♖', b: '♗', n: '♘' } : { q: '♛', r: '♜', b: '♝', n: '♞' }
   return (
-    <div style={{ position: 'relative' }}>
+    <div className="board-wrap">
     <Chessboard
       options={{
         position: fen,
@@ -55,7 +59,7 @@ export default function Board({ fen, flipped, onMove, arrows, lastMove, interact
         allowDragging: interactive,
         animationDurationInMs: 160,
         squareStyles,
-        arrows: arrows ?? [],
+        arrows: [],
         allowDrawingArrows: false,
         lightSquareStyle: { backgroundColor: 'var(--sq-light)' },
         darkSquareStyle: { backgroundColor: 'var(--sq-dark)' },
@@ -74,6 +78,7 @@ export default function Board({ fen, flipped, onMove, arrows, lastMove, interact
         canDragPiece: ({ square }) => !!square && game.get(square as Square)?.color === game.turn(),
       }}
     />
+      <ArrowLayer arrows={arrows ?? []} flipped={!!flipped} />
       {promo && (
         <div role="dialog" aria-label="Choose promotion piece" onClick={() => setPromo(null)}
           style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', background: 'rgba(0,0,0,.35)' }}>

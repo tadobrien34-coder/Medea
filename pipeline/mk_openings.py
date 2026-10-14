@@ -4,6 +4,7 @@ from collections import Counter
 import chess
 import numpy as np
 from lib import *
+from lib_pieces import pieceName
 import board_pass as bp
 from mk_book import vkey_of, fkey_of, side_of, pos_key
 
@@ -230,6 +231,14 @@ def analyse(level, key, idx, tables, ev_all, base, meta, global_tact, n_games, t
             w_, d_, l_ = wdl(res[mk], side)
             bands.append({'band': name, 'n': int(mk.sum()), 'win': pct(w_, mk.sum()), 'draw': pct(d_, mk.sum()),
                           'loss': pct(l_, mk.sum())})
+    band_obj = []
+    for bi in range(len(BAND_NAMES)):
+        mk = (avg >= BAND_EDGES[bi]) & (avg < BAND_EDGES[bi + 1])
+        if mk.sum() >= 15 and last >= 16:
+            with np.errstate(all='ignore'):
+                band_obj.append(round(float(np.nanmean(np.nanmedian(ev[mk][:, 9:16], axis=0))), 2))
+        else:
+            band_obj.append(None)
     rel_obj = obj - base['obj'][side]
     rel_score = score - base['score'][side]
     steady_rel = steady - base['steady'][side]
@@ -242,7 +251,7 @@ def analyse(level, key, idx, tables, ev_all, base, meta, global_tact, n_games, t
         'obj': round(obj, 2), 'rel_obj': round(rel_obj, 2), 'steady': round(steady, 3), 'steady_n': int(g30.sum()),
         'play': round(play), 'tier_obj': to, 'tier_play': tp, 'verdict': verdict(to, tp),
         'sd30': round(float(sd[29]), 2) if last > 29 else None,
-        'traj': traj, 'by_tc': by_tc, 'bands': bands,
+        'traj': traj, 'by_tc': by_tc, 'bands': bands, 'band_obj': band_obj,
         'edge': {'share': edge_share, 'move': edge_move}, 'win': {'share': win_share, 'move': win_move},
         'wins': {'mate': pct(wtypes[0], max(1, sum(wtypes))), 'resign': pct(wtypes[1], max(1, sum(wtypes))),
                  'time': pct(wtypes[2], max(1, sum(wtypes))), 'median_move': int(np.median(em[won])) if won.any() else None},
@@ -258,6 +267,7 @@ def analyse(level, key, idx, tables, ev_all, base, meta, global_tact, n_games, t
     }
     out['summary'] = summarise(out)
     out['plan'] = plan_text(out)
+    out['tips'] = tips(out)
     return out
 
 
@@ -285,6 +295,106 @@ def plan_text(o):
         k, v = max(th.items(), key=lambda kv: kv[1]['n'])
         bits.append(f"Aim at their {PNAME_FULL[PK.index(k)]}.")
     return ' '.join(bits)
+
+
+
+def tips(o):
+    """Short, specific things to do, each backed by a number from the games."""
+    out = []
+    e, w = o['edge'], o['win']
+    if e['move'] and e['share']:
+        out.append(f"Aim for a steady edge by move {e['move']}: {e['share'] * 100:.0f}% of games get there"
+                   + (f", and {w['share'] * 100:.0f}% reach +6 by move {w['move']}." if w['move'] and w['share'] else '.'))
+    def pick(slip, lift):
+        """The piece that slips more than usual in this opening; failing that, the one that slips most."""
+        if not slip:
+            return None
+        best = None
+        for i, k in enumerate(PK):
+            if k in slip and lift[i] and lift[i] >= 1.15 and k != 'K' and (best is None or lift[i] > lift[PK.index(best)]):
+                best = k
+        return best or max(slip, key=lambda k: slip[k]['n'])
+    ky = pick(o['slip']['you'], o['careful_lift'])
+    if ky:
+        v = o['slip']['you'][ky]; lf = o['careful_lift'][PK.index(ky)]
+        lead = f", most often the {pieceName(ky, v['ids'][0][0])} ({v['ids'][0][1] * 100:.0f}%)" if v['ids'] and ky in 'NBRP' and v['ids'][0][1] >= 0.3 else ''
+        sq = ', '.join(q for q, _ in v['to'][:3])
+        rate = f", {lf:.1f}× the usual rate" if lf and lf >= 1.15 else ''
+        out.append(f"Watch your {PNAME_FULL[PK.index(ky)]}: it is behind {v['share'] * 100:.0f}% of your lost leads{rate}{lead}" + (f", landing on {sq}." if sq else '.'))
+    kt = pick(o['slip']['them'], o['target_lift'])
+    if kt:
+        v = o['slip']['them'][kt]; lf = o['target_lift'][PK.index(kt)]
+        lead = f", most often the {pieceName(kt, v['ids'][0][0])} ({v['ids'][0][1] * 100:.0f}%)" if v['ids'] and kt in 'NBRP' and v['ids'][0][1] >= 0.3 else ''
+        by = f" Take it with a {PNAME_FULL[PK.index(v['by'][0][0])]}." if v['by'] else ''
+        rate = f", {lf:.1f}× the usual rate" if lf and lf >= 1.15 else ''
+        out.append(f"Aim at their {PNAME_FULL[PK.index(kt)]}: it is behind {v['share'] * 100:.0f}% of their lost leads{rate}{lead}. The reply wins it outright {v['cap'] * 100:.0f}% of the time.{by}")
+    hy = o['heat']['w' if o['side'] == 0 else 'b']
+    ht = o['heat']['b' if o['side'] == 0 else 'w']
+    sq_you = [chess.square_name(i) for i in np.argsort(hy)[::-1][:2] if hy[i] >= 1.5]
+    sq_them = [chess.square_name(i) for i in np.argsort(ht)[::-1][:2] if ht[i] >= 1.5]
+    if sq_you:
+        out.append(f"Material changes hands for you on {' and '.join(sq_you)}: build pressure there.")
+    if sq_them:
+        out.append(f"They win material on {' and '.join(sq_them)}: keep those squares defended.")
+    sig = o['signature']
+    if sig['yours']:
+        x = sig['yours'][0]; out.append(f"Look for the {x['name'].lower()}: it appears {x['lift']:.1f}× as often as usual in this opening.")
+    if sig['theirs']:
+        x = sig['theirs'][0]; out.append(f"Expect a {x['name'].lower()} against you ({x['lift']:.1f}× usual): check for it before every quiet move.")
+    return out[:6]
+
+
+def pawn_tokens(line):
+    """The pawn changes a line makes: pawns now on new squares, and start squares they left."""
+    start = chess.Board()
+    b = chess.Board()
+    for sn in line:
+        b.push_san(sn)
+    def toks(board):
+        return {('P' if c == chess.WHITE else 'p') + chess.square_name(q) for c in (chess.WHITE, chess.BLACK) for q in board.pieces(chess.PAWN, c)}
+    now, then = toks(b), toks(start)
+    return frozenset({'+' + t for t in now - then} | {'-' + t for t in then - now})
+
+
+def add_similar(entries):
+    """Openings with a similar pawn structure or the same attacking targets (same colour, different family)."""
+    vec, paw = {}, {}
+    for o in entries:
+        if not o.get('line') or o['n'] < 300:
+            continue
+        try:
+            paw[(o['level'], o['key'])] = pawn_tokens(o['line'])
+        except Exception:
+            continue
+        h = np.array(o['heat']['w' if o['side'] == 0 else 'b'] + o['heat']['b' if o['side'] == 0 else 'w'], dtype=float)
+        vec[(o['level'], o['key'])] = h / (np.linalg.norm(h) or 1)
+    keys = list(paw)
+    by_key = {(o['level'], o['key']): o for o in entries}
+    for o in entries:
+        k0 = (o['level'], o['key'])
+        if k0 not in paw:
+            o['similar'] = []
+            continue
+        cands = []
+        for k1 in keys:
+            p = by_key[k1]
+            if k1 == k0 or p['side'] != o['side'] or fkey_of(p['key']) == fkey_of(o['key']):
+                continue
+            jac = len(paw[k0] & paw[k1]) / max(1, len(paw[k0] | paw[k1]))
+            cos = float(vec[k0] @ vec[k1])
+            cands.append((0.55 * jac + 0.45 * cos, jac, cos, p))
+        cands.sort(key=lambda x: -x[0])
+        out = []
+        for sim, jac, cos, p in cands[:4]:
+            if sim < 0.3:
+                break
+            why = 'Near-identical pawn structure' if jac >= 0.75 else 'Similar pawn structure' if jac >= 0.5 else 'Related pawn setup'
+            if cos >= 0.6:
+                a = np.array(o['heat']['w' if o['side'] == 0 else 'b']) * np.array(p['heat']['w' if p['side'] == 0 else 'b'])
+                tops = [chess.square_name(i) for i in np.argsort(a)[::-1][:2] if a[i] > 0]
+                why += f"; both win material on {' and '.join(tops)}" if tops else '; similar targets'
+            out.append({'key': p['key'], 'level': p['level'], 'slug': p['slug'], 'why': why, 'sim': round(sim, 2), 'verdict': p['verdict'], 'score': p['score'], 'n': p['n'], 'line': p['line']})
+        o['similar'] = out
 
 
 def summarise(o):
@@ -355,6 +465,7 @@ def build(tables, meta, outdir):
     for o in entries:
         if o['level'] == 'v':
             fam_children.setdefault(fkey_of(o['key']), []).append(o['key'])
+    add_similar(entries)
     index = []
     for o in entries:
         o['family'] = fkey_of(o['key'])
@@ -368,6 +479,7 @@ def build(tables, meta, outdir):
         index[-1]['band_score'] = [None if not any(b['band'] == nm for b in o['bands']) else
                                    round(next(b['win'] + 0.5 * b['draw'] for b in o['bands'] if b['band'] == nm), 3) for nm in BAND_NAMES]
         index[-1]['band_n'] = [next((b['n'] for b in o['bands'] if b['band'] == nm), 0) for nm in BAND_NAMES]
+        index[-1]['band_obj'] = o['band_obj']
         index[-1]['med'] = {str(p): (o['traj']['med'][p - 1] if len(o['traj']['med']) >= p else None) for p in (8, 16, 24, 40)}
         index[-1]['line'] = o['line']
     json.dump({'baselines': base, 'min_games': MIN_GAMES, 'openings': index}, open(os.path.join(outdir, 'openings.json'), 'w'),

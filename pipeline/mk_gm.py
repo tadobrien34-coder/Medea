@@ -49,7 +49,8 @@ def to_rec(d, user):
         'r': '1-0' if w == 'white' else ('0-1' if w == 'black' else '1/2-1/2'), 'tm': 1 if d.get('status') == 'outoftime' else 0,
         'base': (d.get('clock') or {}).get('initial', 0), 'inc': (d.get('clock') or {}).get('increment', 0),
         'op': (d.get('opening') or {}).get('name', '?'), 'mv': ' '.join(moves), 'ev': ev, 'ck': ck,
-        'opp': (bn if side == 0 else wn),
+        'opp': (bn if side == 0 else wn), 'wn': wn, 'bn': bn,
+        'wt': pw.get('user', {}).get('title') or '', 'bt': pb.get('user', {}).get('title') or '',
     }
     return rec, side
 
@@ -154,6 +155,11 @@ class OpenAgg:
             self.an += 1; self.opp_lose += opp_lose; self.you_lose += you_lose
 
 
+def _mixv(t):
+    t = np.asarray(t[:3], dtype=float)
+    return [round(float(x), 3) for x in (t / t.sum())] if t.sum() else [0.0, 0.0, 0.0]
+
+
 ENDS = ['checkmate', 'resignation', 'the clock']
 
 
@@ -212,6 +218,8 @@ def build(outdir, openings_index):
     players, reps = {}, {tc: [] for tc in TCS}
     gm_open = {}          # key -> {gm id -> stats}
     have_page = {(o['level'], o['key']) for o in openings_index}
+    og = {}               # opening key -> candidate GM games to show on the opening page
+    seen_games = set()
     for path in sorted(glob.glob(os.path.join(GMDIR, '*.ndjson'))):
         user, tcl = os.path.basename(path)[:-7].split('__')
         tc = TCL[tcl]
@@ -231,6 +239,11 @@ def build(outdir, openings_index):
                 f = features(rec)
             except Exception:
                 continue
+            if rec['id'] not in seen_games and f.n >= 12 and rec['op'] not in ('?', ''):
+                seen_games.add(rec['id'])
+                row = ((rec['w'] + rec['b']) // 2, rec['id'], rec['wn'], rec['bn'], rec['wt'], rec['bt'], rec['w'], rec['b'], rec['r'], rec['tc'], ' '.join(rec['mv'].split(' ')[:70]))
+                for kk in (vkey_of(rec['op']), fkey_of(rec['op'])):
+                    og.setdefault(kk, []).append(row)
             before = (P.opp_lose.copy(), P.you_lose.copy())
             P.add(f, s)
             ol, yl = P.opp_lose - before[0], P.you_lose - before[1]
@@ -265,6 +278,7 @@ def build(outdir, openings_index):
             'pieces': {'you': [int(x) for x in P.you_lose], 'opp': [int(x) for x in P.opp_lose],
                        'you_cash': [int(x) for x in P.you_cash], 'opp_cash': [int(x) for x in P.opp_cash]},
             'checks_pct': rate(P.chk[0], P.chk[1]), 'captures_pct': rate(P.cap[0], P.cap[1]),
+            'median_len': int(np.median(P.win_em + P.loss_em)) if (P.win_em or P.loss_em) else None,
             'white_share': rate(P.col[0], P.n), 'win_text': win_s, 'lose_text': lose_s,
         }
         # repertoire rows (variation level)
@@ -277,11 +291,15 @@ def build(outdir, openings_index):
             rows.append({
                 'key': key, 'family': fkey_of(key), 'level': lvl, 'n': oa.n, 'w': int(oa.res[0]), 'd': int(oa.res[1]), 'l': int(oa.res[2]),
                 'white': int(oa.col[0]), 'black': int(oa.col[1]), 'how_win': wt, 'how_lose': lt, 'page': (lvl, key) in have_page,
+                'win_mix': _mixv(oa.win_t) if oa.res[0] >= 5 else None, 'loss_mix': _mixv(oa.loss_t) if oa.res[2] >= 5 else None,
+                'win_move': int(np.median(oa.win_em)) if oa.win_em else None, 'loss_move': int(np.median(oa.loss_em)) if oa.loss_em else None,
             })
         reps[tc].append({
             'id': pid, 'name': info['name'], 'title': info.get('title'), 'rating': (info.get('perfs', {}).get(tcl) or {}).get('rating'),
             'games': P.n, 'wdl': [rate(P.res[0], P.n), rate(P.res[1], P.n), rate(P.res[2], P.n)],
             'win_text': win_s, 'lose_text': lose_s, 'openings': rows[:10],
+            'win_mix': _mixv(P.win_t), 'loss_mix': _mixv(P.loss_t), 'win_move': int(np.median(P.win_em)) if P.win_em else None, 'loss_move': int(np.median(P.loss_em)) if P.loss_em else None,
+            'avg_time': rate(P.t_sum[0], P.t_sum[1], 2), 'flag': rate(P.flag[0], max(1, P.clock_games)),
         })
         for dd in (O, fam):
             for key, oa in dd.items():
@@ -317,4 +335,10 @@ def build(outdir, openings_index):
         if tot >= 8:
             out[key] = {'n': tot, 'gms': gms[:12]}
     json.dump(out, open(os.path.join(gdir, 'openings.json'), 'w'), separators=(',', ':'))
+    games_out = {}
+    for kk, rows_ in og.items():
+        rows_.sort(key=lambda r_: -r_[0])
+        keep = rows_[:10]
+        games_out[kk] = [{'id': r_[1], 'w': r_[2], 'b': r_[3], 'wt': r_[4], 'bt': r_[5], 'wr': r_[6], 'br': r_[7], 'r': r_[8], 'tc': r_[9], 'mv': r_[10]} for r_ in keep]
+    json.dump(games_out, open(os.path.join(gdir, 'games.json'), 'w'), separators=(',', ':'))
     print('gm: players', len(players), 'reps', {tc: len(v) for tc, v in reps.items()}, 'opening keys', len(out))

@@ -3,16 +3,22 @@ import { Link } from 'react-router-dom'
 import HoverBoard from '../components/HoverBoard'
 import Icon from '../components/Icon'
 import LinkCard from '../components/LinkCard'
-import { Chip, Filter, PageHead, Segmented, Stat, WDL } from '../components/ui'
+import RangeFilter from '../components/RangeFilter'
+import { BarChart } from '../components/charts/Charts'
+import { Chip, Filter, PageHead, ReadMore, Segmented, Stat, WDL } from '../components/ui'
 import type { UGame } from '../lib/account'
 import { findBlunder } from '../lib/analysis'
 import { TCS, num, pct, signed, variationKey } from '../lib/format'
 import { useUser } from '../lib/userdata'
 import { useData } from '../lib/data'
+import { avgRating, usePeers } from '../lib/peers'
+import { lossProfile } from '../lib/analysis'
+import { userStats } from '../lib/userstats'
 import type { OpeningsFile } from '../lib/types'
 
 type View = 'games' | 'openings'
-type Sort = 'date' | 'opening' | 'result' | 'length' | 'blunder'
+type Sort = 'date' | 'opening' | 'result' | 'length' | 'blunder' | 'best'
+type GSort = 'games' | 'best' | 'worst' | 'name'
 
 const ev = (cp: number) => (Math.abs(cp) >= 990 ? (cp > 0 ? '+M' : '−M') : signed(cp / 100, 1))
 
@@ -44,15 +50,22 @@ export default function MyGames() {
   const [limit, setLimit] = useState(150)
   const [depth, setDepth] = useState<9 | 12>(9)
   const [open, setOpen] = useState<string | null>(null)
+  const [gsort, setGsort] = useState<GSort>('games')
 
   const list = useMemo(() => u.games.filter((g) =>
     (tc === 'All' || g.tc === tc) && (color === 'all' || String(g.color) === color) &&
     (result === 'all' || (result === 'win' ? g.res === 1 : result === 'loss' ? g.res === 0 : g.res === 0.5)) &&
     (!q.trim() || g.opening.toLowerCase().includes(q.trim().toLowerCase()))), [u.games, tc, color, result, q])
 
+  const openScore = useMemo(() => {
+    const m = new Map<string, { n: number; pts: number }>()
+    for (const g of list) { const k = g.opening === '?' ? 'Unknown' : variationKey(g.opening); const e = m.get(k) ?? { n: 0, pts: 0 }; e.n++; e.pts += g.res; m.set(k, e) }
+    return m
+  }, [list])
   const sorted = useMemo(() => {
     const val = (g: UGame): number | string => {
       switch (sort.k) {
+        case 'best': { const e = openScore.get(g.opening === '?' ? 'Unknown' : variationKey(g.opening)); return e ? e.pts / e.n : 0 }
         case 'opening': return g.opening
         case 'result': return g.res
         case 'length': return g.plies
@@ -61,14 +74,25 @@ export default function MyGames() {
       }
     }
     return [...list].sort((a, b) => { const x = val(a), y = val(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir })
-  }, [list, sort])
+  }, [list, sort, openScore])
 
   const groups = useMemo(() => {
     const m = new Map<string, UGame[]>()
     for (const g of list) { const k = g.opening === '?' ? 'Unknown' : variationKey(g.opening); m.set(k, [...(m.get(k) ?? []), g]) }
-    return [...m.entries()].sort((a, b) => b[1].length - a[1].length)
-  }, [list])
+    const pts = (gs: UGame[]) => gs.reduce((a, g) => a + g.res, 0) / gs.length
+    const rank = (gs: UGame[]) => (pts(gs) * gs.length + 2) / (gs.length + 4)       // shrink small samples toward 50%
+    return [...m.entries()].sort((a, b) => gsort === 'name' ? a[0].localeCompare(b[0]) : gsort === 'best' ? rank(b[1]) - rank(a[1]) : gsort === 'worst' ? rank(a[1]) - rank(b[1]) : b[1].length - a[1].length)
+  }, [list, gsort])
 
+  const rating = avgRating(list)
+  const peers = usePeers(tc === 'All' ? 'all' : tc, rating)
+  const mine = useMemo(() => userStats(list), [list])
+  const prof = useMemo(() => lossProfile(list), [list])
+  const types = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const g of list) if (g.res === 0 && g.blunder?.punish) m.set(g.blunder.punish, (m.get(g.blunder.punish) ?? 0) + 1)
+    return [...m.entries()].sort((a, b) => b[1] - a[1])
+  }, [list])
   const losses = u.games.filter((g) => g.res === 0)
   const analysed = losses.filter((g) => g.blunder !== undefined || g.evs).length
   const th = (k: Sort, label: string) => (
@@ -79,48 +103,67 @@ export default function MyGames() {
   if (!u.linked) return <><PageHead title="My games" sub="Your own games, saved in this browser." /><LinkCard /></>
   return (
     <>
-      <PageHead title="My games" sub="Saved in this browser, so leaving this page never reloads them. Sort by opening, and see the move you blundered on in each loss."
-        actions={<>
-          <button className="btn" onClick={() => u.refresh()} disabled={u.status === 'loading'}>{u.status === 'loading' ? <><span className="spinner" style={{ width: 14, height: 14 }} /> {u.progress}</> : 'Refresh'}</button>
-        </>} />
-      <div className="row" style={{ marginBottom: 16, gap: 8 }}>
+      <PageHead title="My games" sub="Saved in this browser."
+        actions={<button className="btn" onClick={() => u.refresh()} disabled={u.status === 'loading'}>{u.status === 'loading' ? <><span className="spinner" style={{ width: 14, height: 14 }} /> {u.progress}</> : 'Refresh'}</button>} />
+      <div className="row" style={{ marginBottom: 14, gap: 8 }}>
         {u.profile.lichess && <Chip>Lichess · {u.profile.lichess}<button className="link" style={{ background: 'none', border: 0, padding: 0 }} onClick={() => u.unlink('lichess')} aria-label="Unlink Lichess">✕</button></Chip>}
         {u.profile.chesscom && <Chip>Chess.com · {u.profile.chesscom}<button className="link" style={{ background: 'none', border: 0, padding: 0 }} onClick={() => u.unlink('chesscom')} aria-label="Unlink Chess.com">✕</button></Chip>}
         {(!u.profile.lichess || !u.profile.chesscom) && <details><summary className="link small" style={{ cursor: 'pointer' }}>Link another account</summary><div style={{ marginTop: 10 }}><LinkCard /></div></details>}
-        <span className="small muted">{num(u.games.length)} games saved</span>
+        <span className="small muted">{num(u.allGames.length)} games saved</span>
+        <Link className="link small" to="/me/report" style={{ marginLeft: 'auto' }}>General report and tips →</Link>
       </div>
       {u.error && <div className="note warn" style={{ marginBottom: 12 }}>{u.error}</div>}
 
-      <div className="grid-4" style={{ marginBottom: 18 }}>
+      <div className="grid-4" style={{ marginBottom: 14 }}>
         <Stat label="Record" value={pct(list.filter((g) => g.res === 1).length / Math.max(1, list.length))} hint={<WDL w={list.filter((g) => g.res === 1).length} d={list.filter((g) => g.res === 0.5).length} l={list.filter((g) => g.res === 0).length} />} />
-        <Stat label="Games shown" value={num(list.length)} hint={`${num(losses.length)} losses in total`} />
-        <Stat label="Losses analysed" value={`${analysed}/${losses.length}`} hint="blunder move found" />
+        <Stat label="Blunder rate" value={mine.blunderRate != null ? pct(mine.blunderRate, 1) : '–'} hint={peers.blunderRate != null ? `players at ${peers.group?.label}: ${pct(peers.blunderRate, 1)}` : `${mine.analysed} analysed games`} />
+        <Stat label="Lost on the clock" value={pct(mine.flagRate, 1)} hint={peers.flagRate != null ? `players at ${peers.group?.label}: ${pct(peers.flagRate, 1)}` : 'of your games'} />
         <section className="stat">
-          <div className="label">Find my blunders</div>
+          <div className="label">Losses analysed · {analysed}/{losses.length}</div>
           {u.task.running ? (
             <div className="hint" style={{ marginTop: 6 }}>{u.task.label}… {u.task.done}/{u.task.total}<div style={{ marginTop: 6 }}><button className="btn" onClick={u.stopTask}>Stop</button></div></div>
           ) : (
             <div className="row" style={{ marginTop: 6, gap: 8 }}>
               <select value={depth} onChange={(e) => setDepth(+e.target.value as 9 | 12)} aria-label="Analysis depth"><option value={9}>Quick</option><option value={12}>Deeper</option></select>
-              <button className="btn primary" onClick={() => u.analyseLosses(depth)} disabled={analysed >= losses.length}>Analyse losses</button>
+              <button className="btn primary" onClick={() => u.analyseLosses(depth)} disabled={analysed >= losses.length && types.length >= analysed}>Analyse losses</button>
             </div>
           )}
         </section>
       </div>
+
+      {prof.analysed >= 5 && (
+        <div className="grid-2" style={{ marginBottom: 14 }}>
+          <section className="card">
+            <div className="card-head"><h3>How you lose</h3><span className="small muted">{prof.analysed} analysed losses</span></div>
+            <BarChart items={[
+              { label: 'From winning', value: prof.fromWinning, note: 'you were +2 or better' }, { label: 'On the clock', value: prof.flagged },
+              { label: 'Mated', value: prof.mated }, { label: 'Resigned', value: prof.resigned },
+              { label: 'Time trouble', value: prof.timeTrouble, note: 'first blunder under 10% clock' },
+            ]} yFormat={(v) => String(Math.round(v))} height={170} tipLabel="Losses" color="var(--s2)" />
+          </section>
+          <section className="card">
+            <div className="card-head"><h3>What the blunders were</h3><span className="small muted">{types.reduce((a, [, n]) => a + n, 0)} classified</span></div>
+            {types.length ? <BarChart items={types.slice(0, 6).map(([k, v]) => ({ label: k.replace('Walked into a ', '').replace('Allowed ', '').replace('Hung a ', 'Hung '), value: v, note: k }))} yFormat={(v) => String(Math.round(v))} height={170} tipLabel="Blunders" color="var(--s7)" />
+              : <div className="small muted" style={{ padding: '4px 20px 18px' }}>Press Analyse losses to classify them.</div>}
+          </section>
+        </div>
+      )}
 
       <div className="filters">
         <Filter label="View"><Segmented value={view} onChange={setView} options={[{ value: 'games', label: 'Games' }, { value: 'openings', label: 'By opening' }]} /></Filter>
         <Filter label="Time control"><Segmented value={tc} onChange={setTc} options={[{ value: 'All', label: 'All' }, ...TCS.map((t) => ({ value: t, label: t }))]} /></Filter>
         <Filter label="Colour"><Segmented value={color} onChange={setColor} options={[{ value: 'all', label: 'Both' }, { value: '0', label: 'White' }, { value: '1', label: 'Black' }]} /></Filter>
         <Filter label="Result"><Segmented value={result} onChange={setResult} options={[{ value: 'all', label: 'All' }, { value: 'win', label: 'Wins' }, { value: 'loss', label: 'Losses' }, { value: 'draw', label: 'Draws' }]} /></Filter>
-        <input type="search" placeholder="Filter by opening" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter by opening" style={{ minWidth: 180 }} />
+        <RangeFilter />
+        {view === 'openings' && <Filter label="Sort"><Segmented value={gsort} onChange={setGsort} options={[{ value: 'games', label: 'Most played' }, { value: 'best', label: 'Best' }, { value: 'worst', label: 'Worst' }, { value: 'name', label: 'A–Z' }]} /></Filter>}
+        <input type="search" placeholder="Filter by opening" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter by opening" style={{ minWidth: 160 }} />
       </div>
 
       {view === 'games' ? (
         <section className="card">
           <div className="table-wrap">
             <table className="t compact">
-              <thead><tr>{th('date', 'Date')}<th>Time</th>{th('opening', 'Opening')}<th>Opponent</th>{th('result', 'Result')}{th('length', 'Moves')}{th('blunder', 'Where you blundered')}</tr></thead>
+              <thead><tr>{th('date', 'Date')}<th>Time</th>{th('opening', 'Opening')}{th('best', 'Opening score')}<th>Opponent</th>{th('result', 'Result')}{th('length', 'Moves')}{th('blunder', 'Where you blundered')}</tr></thead>
               <tbody>
                 {sorted.slice(0, limit).map((g) => {
                   const o = lineFor(variationKey(g.opening))
@@ -131,6 +174,7 @@ export default function MyGames() {
                       <td><HoverBoard line={g.sans.slice(0, g.opPly || 8)} flipped={g.color === 1} title={g.opening}>
                         <span className="row" style={{ gap: 7, flexWrap: 'nowrap' }}><i className={`dot ${g.color === 0 ? 'w' : 'b'}`} />
                           {o ? <Link to={`/openings/${o.level}/${o.slug}`} className="name dotted" style={{ color: 'var(--ink)' }}>{g.opening}</Link> : <span className="name">{g.opening}</span>}</span></HoverBoard></td>
+                      <td className="small num">{(() => { const e = openScore.get(g.opening === '?' ? 'Unknown' : variationKey(g.opening)); return e ? `${pct(e.pts / e.n)} · ${e.n}` : '–' })()}</td>
                       <td className="small muted">{g.oppName}{g.opp ? ` (${g.opp})` : ''}</td>
                       <td><Chip tone={g.res === 1 ? 'good' : g.res === 0 ? 'bad' : undefined}>{g.res === 1 ? 'Win' : g.res === 0 ? 'Loss' : 'Draw'}{g.term === 'time' ? ' · clock' : ''}</Chip></td>
                       <td className="r">{Math.ceil(g.plies / 2)}</td>

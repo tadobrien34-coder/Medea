@@ -8,7 +8,7 @@ export interface OpeningIndexItem {
   tier_obj: 'good' | 'sound' | 'dubious'; tier_play: 'high' | 'ok' | 'tricky'; verdict: string; sd30: number | null
   edge: { share: number | null; move: number | null }; win: { share: number | null; move: number | null }
   shifts_per_game: number; med: Record<string, number | null>; line: string[] | null
-  plan?: string; next?: [string, number][]; band_score?: (number | null)[]; band_n?: number[]
+  plan?: string; next?: [string, number][]; band_score?: (number | null)[]; band_n?: number[]; band_obj?: (number | null)[]
 }
 export interface OpeningsFile { baselines: Record<string, number[]>; min_games: number; openings: OpeningIndexItem[] }
 
@@ -22,7 +22,8 @@ export interface OpeningDetailFile extends OpeningIndexItem {
   careful_moves: [number, number] | null; target_moves: [number, number] | null
   signature: { yours: Sig[]; theirs: Sig[] }
   summary: string[]; children?: string[]
-  heat: { w: number[]; b: number[] }; plan: string; next: [string, number][]
+  heat: { w: number[]; b: number[] }; plan: string; next: [string, number][]; tips: string[]; band_obj: (number | null)[]
+  similar: { key: string; level: string; slug: string; why: string; sim: number; verdict: string; score: number; n: number; line: string[] | null }[]
   slip: Record<'you' | 'them', Record<string, SlipInfo>>
   lost: Record<'you' | 'them', Record<string, LostInfo>>
 }

@@ -27,7 +27,7 @@ export default function MyOpenings() {
     for (const x of u.scan?.opening ?? []) for (const id of new Set(x.games)) { const k = idOpening.get(id); if (k) m.set(k, (m.get(k) ?? 0) + (x.count >= 2 ? 1 : 0)) }
     return m
   }, [u.scan, u.games])
-  if (!u.linked) return <><PageHead title="My openings" sub="Your most played openings, with a way to practise each one." /><LinkCard /></>
+  if (!u.linked) return <><PageHead title="My openings" sub="Your most played openings, with a way to practice each one." /><LinkCard /></>
 
   const lineFor = (key: string, color: 0 | 1) => {
     const o = byKey.get(key)

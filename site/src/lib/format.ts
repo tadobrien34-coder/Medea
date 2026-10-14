@@ -34,3 +34,9 @@ export const lichessAnalysis = (fen: string) => `https://lichess.org/analysis/${
 export const SERIES = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s5)', 'var(--s6)', 'var(--s7)', 'var(--s8)']
 export const SEQ = ['var(--seq-1)', 'var(--seq-2)', 'var(--seq-3)', 'var(--seq-4)', 'var(--seq-5)', 'var(--seq-6)']
 export const seqColor = (i: number, n: number) => SEQ[n <= 1 ? 2 : Math.round((i / (n - 1)) * (SEQ.length - 1))]
+
+/** Seconds for chart axes: whole numbers stay whole, halves show one decimal (0.5s, 1.5s) so labels never repeat. */
+export const secAxis = (v: number) => (Number.isInteger(v) ? `${v}s` : `${v.toFixed(1)}s`)
+export const YOU = '#e0a31a'          // the yellow dotted line that marks you on every comparison chart
+
+export const BAND_LABELS = ['<1000', '1000-1399', '1400-1799', '1800-2199', '2200+']

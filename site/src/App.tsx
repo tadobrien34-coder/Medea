@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import BackButton from './components/BackButton'
 import Icon from './components/Icon'
 import Explore from './pages/Explore'
 import Levels from './pages/Levels'
@@ -13,6 +14,7 @@ import MyOpenings from './pages/MyOpenings'
 import MyTree from './pages/MyTree'
 import MyTime from './pages/MyTime'
 import Mistakes from './pages/Mistakes'
+import Report from './pages/Report'
 import Practice from './pages/Practice'
 import Play from './pages/Play'
 import { useUser } from './lib/userdata'
@@ -30,6 +32,7 @@ const NAV: { to: string; label: string; icon: string; end?: boolean }[] = [
   { to: '/play', label: 'Play vs computer', icon: 'board' },
 ]
 const ME = [
+  { to: '/me/report', label: 'Report & tips', icon: 'spark' },
   { to: '/me', label: 'My games', icon: 'user', end: true },
   { to: '/me/openings', label: 'My openings', icon: 'book' },
   { to: '/me/tree', label: 'My opening tree', icon: 'levels' },
@@ -86,6 +89,7 @@ export default function App() {
         </div>
       </aside>
       <main className="main">
+        <BackButton />
         <Routes>
           <Route path="/" element={<Explore />} />
           <Route path="/levels" element={<Levels />} />
@@ -96,6 +100,7 @@ export default function App() {
           <Route path="/players/:id" element={<Players />} />
           <Route path="/repertoires" element={<Repertoires />} />
           <Route path="/me" element={<MyGames />} />
+          <Route path="/me/report" element={<Report />} />
           <Route path="/me/openings" element={<MyOpenings />} />
           <Route path="/me/tree" element={<MyTree />} />
           <Route path="/me/time" element={<MyTime />} />

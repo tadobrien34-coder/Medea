@@ -11,7 +11,7 @@ export function fenAfter(line: string[], upTo = line.length): { fen: string; las
 }
 
 /** Arrows for candidate SAN moves from a position, opacity by share. */
-export function moveArrows(fen: string, moves: [string, number][], rgb = '42,120,214'): Arrow[] {
+export function moveArrows(fen: string, moves: [string, number][], rgb = '224,163,26'): Arrow[] {
   const g = new Chess(fen)
   const out: Arrow[] = []
   for (const [san, share] of moves) {

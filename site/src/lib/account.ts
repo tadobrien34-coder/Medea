@@ -2,7 +2,7 @@ import { Book, openingAlong } from './book'
 import { TC, variationKey } from './format'
 
 export type Platform = 'lichess' | 'chesscom'
-export interface Blunder { ply: number; san: string; drop: number; before: number; after: number; best?: string }
+export interface Blunder { ply: number; san: string; drop: number; before: number; after: number; best?: string; punish?: string }
 export interface UGame {
   id: string; platform: Platform; ts: number; tc: TC; color: 0 | 1; res: 1 | 0.5 | 0; term: 'mate' | 'resign' | 'time' | 'draw' | 'other'
   plies: number; opening: string; opPly: number; base: number; inc: number; rating: number | null; opp: number | null; oppName: string

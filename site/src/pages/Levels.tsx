@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BarChart, ChartCard, LineChart } from '../components/charts/Charts'
 import { Filter, HBars, Loading, PageHead, Segmented, Stat, WDL } from '../components/ui'
+import { SortState, SortTh, sortRows } from '../components/Sort'
 import { useData } from '../lib/data'
-import { PIECES, SERIES, TCS, num, pct, seqColor, secs } from '../lib/format'
+import { PIECES, SERIES, TCS, YOU, num, pct, secAxis, seqColor, secs } from '../lib/format'
+import { userStats } from '../lib/userstats'
+import { useUser } from '../lib/userdata'
 import { MOVE_LABELS, SHIFT_LABELS, defaultSelection, rangeLabel } from '../lib/levelsUtil'
 import type { LevelEntry, LevelsFile } from '../lib/types'
 
@@ -53,7 +56,7 @@ export default function Levels() {
         <div className={loading ? 'fade' : ''}>
           {tab !== 'overview' && <Picker entries={entries} plot={plot} setPlot={setPlot} />}
           {tab === 'overview' && <Overview entries={entries} selected={selected} setSelected={setSelected} sel={sel} />}
-          {tab === 'blunders' && <Blunders entries={entries} plot={plot} sel={sel} selected={selected} setSelected={setSelected} />}
+          {tab === 'blunders' && <Blunders entries={entries} plot={plot} sel={sel} selected={selected} setSelected={setSelected} tc={tc} />}
           {tab === 'time' && <TimeTab entries={entries} plot={plot} size={size} tc={tc} />}
         </div>
       )}
@@ -88,6 +91,24 @@ function seriesFor(entries: LevelEntry[], plot: number[], pick: (e: LevelEntry) 
 function Overview({ entries, selected, setSelected, sel }: { entries: LevelEntry[]; selected: number; setSelected: (i: number) => void; sel?: LevelEntry }) {
   const [metric, setMetric] = useState<MetricKey>('end')
   const M = METRICS[metric]
+  const [sort, setSort] = useState<SortState>({ k: 'rating', dir: 1 })
+  const rows = useMemo(() => sortRows(entries.map((e, i) => ({ e, i })), (r, k) => {
+    const e = r.e
+    if (e.thin) return k === 'rating' ? e.lo : null
+    switch (k) {
+      case 'rating': return e.lo
+      case 'games': return e.n
+      case 'ends': return e.end.mean
+      case 'shifts': return e.shifts.mean
+      case 'none': return e.shifts.zero
+      case 'final': return e.final_shift.median
+      case 'checks': return e.checks.white + e.checks.black
+      case 'pcheck': return e.checks.pct_all
+      case 'caps': return e.captures.white + e.captures.black
+      case 'white': return e.result.white
+      default: return e.lo
+    }
+  }, sort), [entries, sort])
   const items = entries.map((e) => ({ label: e.label, value: e.thin ? null : M.get(e), note: `${num(e.n)} games` }))
   return (
     <div className="stack-lg">
@@ -106,11 +127,14 @@ function Overview({ entries, selected, setSelected, sel }: { entries: LevelEntry
         <div className="table-wrap" style={{ padding: '6px 8px 10px' }}>
           <table className="t compact">
             <thead><tr>
-              <th>Rating</th><th className="r">Games</th><th className="r">Ends (avg)</th><th className="r">Shifts / game</th><th className="r">No shift</th>
-              <th className="r">Final shift</th><th className="r">Checks W / B</th><th className="r">% moves check</th><th className="r">Captures W / B</th><th style={{ width: 110 }}>White / draw / Black</th>
+              <SortTh k="rating" label="Rating" sort={sort} onSort={setSort} first={1} /><SortTh k="games" label="Games" right sort={sort} onSort={setSort} />
+              <SortTh k="ends" label="Ends (avg)" right sort={sort} onSort={setSort} /><SortTh k="shifts" label="Shifts / game" right sort={sort} onSort={setSort} />
+              <SortTh k="none" label="No shift" right sort={sort} onSort={setSort} /><SortTh k="final" label="Final shift" right sort={sort} onSort={setSort} />
+              <SortTh k="checks" label="Checks W / B" right sort={sort} onSort={setSort} /><SortTh k="pcheck" label="% moves check" right sort={sort} onSort={setSort} />
+              <SortTh k="caps" label="Captures W / B" right sort={sort} onSort={setSort} /><SortTh k="white" label="White / draw / Black" sort={sort} onSort={setSort} />
             </tr></thead>
             <tbody>
-              {entries.map((e, i) => e.thin ? (
+              {rows.map(({ e, i }) => e.thin ? (
                 <tr key={e.label}><td className="name">{e.label}</td><td className="r muted">{num(e.n)}</td><td colSpan={8} className="muted small">Not enough analysed games yet</td></tr>
               ) : (
                 <tr key={e.label} className={`click ${i === selected ? 'sel' : ''}`} onClick={() => setSelected(i)}>
@@ -203,15 +227,19 @@ function Detail({ e }: { e: LevelEntry }) {
 }
 
 /* ------------------------------------------------------------------------- blunders */
-function Blunders({ entries, plot, sel, selected, setSelected }: { entries: LevelEntry[]; plot: number[]; sel?: LevelEntry; selected: number; setSelected: (i: number) => void }) {
+function Blunders({ entries, plot, sel, selected, setSelected, tc }: { entries: LevelEntry[]; plot: number[]; sel?: LevelEntry; selected: number; setSelected: (i: number) => void; tc: TcSel }) {
   const [kind, setKind] = useState<'blunder' | 'mistake'>('blunder')
+  const u = useUser()
+  const mine = useMemo(() => userStats(u.games.filter((g) => tc === 'All' || g.tc === tc)), [u.games, tc])
+  const showMe = u.linked && mine.analysed >= 5 && kind === 'blunder'
+  const you = (values: (number | null)[]) => (showMe ? [{ key: 'you', name: 'You', color: YOU, values, dotted: true }] : [])
   const first = entries.find((e) => !e.thin)
   // bins with fewer than 300 moves are too noisy to plot
   const ser = (pick: (e: LevelEntry) => { moves: number; blunder: number | null; mistake: number | null }[]) =>
     seriesFor(entries, plot, (e) => pick(e).map((b) => (b[kind] == null || b.moves < 300 ? null : b[kind]! * 100)))
-  const byMove = ser((e) => e.blunder.by_move)
-  const bySec = ser((e) => e.blunder.by_clock_sec)
-  const byPct = ser((e) => e.blunder.by_clock_pct)
+  const byMove = [...ser((e) => e.blunder.by_move), ...you(mine.byMove)]
+  const bySec = [...ser((e) => e.blunder.by_clock_sec), ...you(mine.bySec)]
+  const byPct = [...ser((e) => e.blunder.by_clock_pct), ...you(mine.byPct)]
   const lbl = kind === 'blunder' ? 'Blunder %' : 'Mistake %'
   const mk = (series: ReturnType<typeof ser>, labels: string[]) => ({
     head: ['Range', ...series.map((s) => s.name)],
@@ -221,6 +249,7 @@ function Blunders({ entries, plot, sel, selected, setSelected }: { entries: Leve
   const secLabels = first ? first.blunder.by_clock_sec.map((b) => rangeLabel(b, 's')) : []
   const pctLabels = first ? first.blunder.by_clock_pct.map((b) => rangeLabel(b, '%')) : []
   const legend = byMove.map((s) => ({ name: s.name, color: s.color }))
+  const rev = <T,>(a: T[]) => [...a].reverse()          // most time on the left, running out on the right
   const xs = (n: number) => Array.from({ length: n }, (_, i) => i)
   const pieceRates = sel && !sel.thin ? sel.pieces.blunder_all.map((v, i) => v / Math.max(1, sel.pieces.moves[i])) : []
   return (
@@ -231,11 +260,11 @@ function Blunders({ entries, plot, sel, selected, setSelected }: { entries: Leve
         <LineChart xs={xs(mvLabels.length)} series={byMove} xFormat={(i) => mvLabels[i]} yFormat={(v) => `${v.toFixed(1)}%`} yMin={0} height={270} xTickCount={11} />
       </ChartCard>
       <div className="grid-2">
-        <ChartCard title={`${lbl} by time left`} sub="Seconds on your clock when you started the move" legend={legend} table={mk(bySec, secLabels)}>
-          <LineChart xs={xs(secLabels.length)} series={bySec} xFormat={(i) => secLabels[i]} yFormat={(v) => `${v.toFixed(1)}%`} yMin={0} height={250} xTickCount={5} />
+        <ChartCard title={`${lbl} by time left`} sub="Clock when you started the move. Plenty of time on the left, running out on the right." legend={legend} table={mk(bySec, secLabels)}>
+          <LineChart xs={xs(secLabels.length)} series={bySec} xFormat={(i) => secLabels[i]} yFormat={(v) => `${v.toFixed(1)}%`} yMin={0} height={250} xTickCount={5} reverse />
         </ChartCard>
-        <ChartCard title={`${lbl} by share of clock left`} sub="Percent of your starting time still on the clock" legend={legend} table={mk(byPct, pctLabels)}>
-          <LineChart xs={xs(pctLabels.length)} series={byPct} xFormat={(i) => pctLabels[i]} yFormat={(v) => `${v.toFixed(1)}%`} yMin={0} height={250} xTickCount={5} />
+        <ChartCard title={`${lbl} by share of clock left`} sub="Share of starting time left. Plenty on the left, running out on the right." legend={legend} table={mk(byPct, pctLabels)}>
+          <LineChart xs={xs(pctLabels.length)} series={byPct} xFormat={(i) => pctLabels[i]} yFormat={(v) => `${v.toFixed(1)}%`} yMin={0} height={250} xTickCount={5} reverse />
         </ChartCard>
       </div>
       {sel && !sel.thin && (
@@ -249,7 +278,7 @@ function Blunders({ entries, plot, sel, selected, setSelected }: { entries: Leve
               <HBars labels={[...PIECES]} values={sel.pieces.blunder_all} color="var(--s2)"
                 fmt={(v) => `${((100 * v) / (sel.pieces.blunder_all.reduce((a, b) => a + b, 0) || 1)).toFixed(0)}% · ${num(v)}`} /></div>
             <div><div className="section-title" style={{ padding: '12px 20px 0', margin: 0 }}>Blunder rate per move of that piece</div>
-              <HBars labels={[...PIECES]} values={pieceRates} color="var(--s7)" fmt={(v) => `${(v * 100).toFixed(1)}%`} /></div>
+              <HBars labels={[...PIECES, 'All pieces']} values={[...pieceRates, sel.blunder.overall]} color="var(--s7)" fmt={(v) => `${(v * 100).toFixed(1)}%`} /></div>
           </div>
         </section>
       )}
@@ -263,12 +292,18 @@ function TimeTab({ entries, plot, size, tc }: { entries: LevelEntry[]; plot: num
   const blitz = useData<LevelsFile>('levels_blitz.json').data
   const rapid = useData<LevelsFile>('levels_rapid.json').data
   const classical = useData<LevelsFile>('levels_classical.json').data
+  const u = useUser()
+  const mine = useMemo(() => userStats(u.games.filter((g) => tc === 'All' || g.tc === tc)), [u.games, tc])
+  const showMe = u.linked && mine.perMove.length > 5
   const perMove = seriesFor(entries, plot, (e) => e.time.per_move_by_move)
   const cap = Math.min(60, Math.max(0, ...perMove.map((s) => s.values.length)))
   const trim = <T extends { values: (number | null)[] }>(arr: T[]) => arr.map((s) => ({ ...s, values: s.values.slice(0, cap) }))
   const clock = seriesFor(entries, plot, (e) => e.time.clock_pct_by_move)
   const xs = Array.from({ length: cap }, (_, i) => i + 1)
-  const legend = perMove.map((s) => ({ name: s.name, color: s.color }))
+  const youLine = (vals: (number | null)[]) => (showMe ? [{ key: 'you', name: 'You', color: YOU, values: vals.slice(0, cap) as (number | null)[], dotted: true }] : [])
+  const perMoveAll = [...trim(perMove), ...youLine(mine.perMove)]
+  const clockAll = [...trim(clock), ...youLine(mine.clockLeft)]
+  const legend = perMoveAll.map((s) => ({ name: s.name, color: s.color }))
   const byTc = [['Bullet', bullet], ['Blitz', blitz], ['Rapid', rapid], ['Classical', classical]] as const
   const tcSeries = byTc.map(([name, f], k) => ({
     key: name, name, color: SERIES[k],
@@ -280,23 +315,23 @@ function TimeTab({ entries, plot, size, tc }: { entries: LevelEntry[]; plot: num
     <div className="stack-lg">
       <div className="grid-2">
         <ChartCard title="Time per move" sub="Average seconds spent, by move number" legend={legend}
-          table={{ head: ['Move', ...perMove.map((s) => s.name)], rows: xs.map((m, i) => [m, ...trim(perMove).map((s) => (s.values[i] == null ? '–' : s.values[i]!.toFixed(1) + 's'))]) }}>
-          <LineChart xs={xs} series={trim(perMove)} yFormat={(v) => `${v.toFixed(0)}s`} xFormat={(x) => String(x)} tipHeader={(x) => `Move ${x}`} yMin={0} height={260} />
+          table={{ head: ['Move', ...perMoveAll.map((s) => s.name)], rows: xs.map((m, i) => [m, ...perMoveAll.map((s) => (s.values[i] == null ? '–' : s.values[i]!.toFixed(1) + 's'))]) }}>
+          <LineChart xs={xs} series={perMoveAll} yFormat={secAxis} xFormat={(x) => String(x)} tipHeader={(x) => `Move ${x}`} yMin={0} height={260} />
         </ChartCard>
         <ChartCard title="Clock left" sub="Average share of starting time still on the clock, by move number" legend={legend}
-          table={{ head: ['Move', ...clock.map((s) => s.name)], rows: xs.map((m, i) => [m, ...trim(clock).map((s) => (s.values[i] == null ? '–' : s.values[i]!.toFixed(0) + '%'))]) }}>
-          <LineChart xs={xs} series={trim(clock)} yFormat={(v) => `${v.toFixed(0)}%`} xFormat={(x) => String(x)} tipHeader={(x) => `Move ${x}`} yMin={0} yMax={100} height={260} />
+          table={{ head: ['Move', ...clockAll.map((s) => s.name)], rows: xs.map((m, i) => [m, ...clockAll.map((s) => (s.values[i] == null ? '–' : s.values[i]!.toFixed(0) + '%'))]) }}>
+          <LineChart xs={xs} series={clockAll} yFormat={(v) => `${v.toFixed(0)}%`} xFormat={(x) => String(x)} tipHeader={(x) => `Move ${x}`} yMin={0} yMax={100} height={260} />
         </ChartCard>
       </div>
       <ChartCard title="Time per move across time controls" sub={`Average seconds per move by rating group (${size} Elo groups)`} legend={tcSeries.map((s) => ({ name: s.name, color: s.color }))}
         table={{ head: ['Rating', ...tcSeries.map((s) => s.name)], rows: tcLabels.map((l, i) => [l, ...tcSeries.map((s) => (s.values[i] == null ? '–' : s.values[i]!.toFixed(1) + 's'))]) }}>
-        <LineChart xs={tcLabels.map((_, i) => i)} series={tcSeries} xFormat={(i) => tcLabels[i] ?? ''} yFormat={(v) => `${v.toFixed(0)}s`} yMin={0} height={270} xTickCount={Math.min(8, tcLabels.length)} />
+        <LineChart xs={tcLabels.map((_, i) => i)} series={tcSeries} xFormat={(i) => tcLabels[i] ?? ''} yFormat={secAxis} yMin={0} height={270} xTickCount={Math.min(8, tcLabels.length)} />
       </ChartCard>
       <ChartCard title="Games lost on the clock" sub={`${tc === 'All' ? 'All time controls' : tc}: share of games where a player flagged. Hover for how often the flagger was ahead.`}
         table={{ head: ['Rating', 'Flag %', 'Ahead by 2+', 'Winning (+6)'], rows: entries.map((e) => [e.label, e.time.flag_pct == null ? '–' : (e.time.flag_pct * 100).toFixed(1) + '%', pct(e.time.flag_while_ahead2), pct(e.time.flag_while_winning)]) }}>
         <BarChart items={flagItems} yFormat={(v) => `${v.toFixed(0)}%`} tipLabel="Games lost on time" color="var(--s4)" />
       </ChartCard>
-      <div className="note">Time is read from the clock after each move. Bullet games compress the early moves and spend almost nothing past move 25; classical games are still using real thinking time at move 40.</div>
+      
     </div>
   )
 }

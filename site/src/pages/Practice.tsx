@@ -5,6 +5,7 @@ import Board from '../components/Board'
 import BoardView from '../components/BoardView'
 import LinkCard from '../components/LinkCard'
 import { Chip, PageHead, Stat } from '../components/ui'
+import { missedId } from '../lib/mistakeIds'
 import { useUser } from '../lib/userdata'
 
 interface Item { id: string; fen: string; color: 0 | 1; good: string[]; best: string; avoid?: string; kind: string; why: string }
@@ -12,11 +13,11 @@ interface Item { id: string; fen: string; color: 0 | 1; good: string[]; best: st
 export default function Practice() {
   const u = useUser()
   const items = useMemo<Item[]>(() => {
-    const a: Item[] = (u.scan?.opening ?? []).map((m) => ({ id: m.id, fen: m.fen, color: m.color, good: m.good.length ? m.good : [m.best], best: m.best, avoid: m.san, kind: 'Opening',
+    const a: Item[] = (u.scan?.opening ?? []).filter((m) => !(m.id in u.dismissed)).map((m) => ({ id: m.id, fen: m.fen, color: m.color, good: m.good.length ? m.good : [m.best], best: m.best, avoid: m.san, kind: 'Opening',
       why: `You have played ${m.san} ${m.count} time${m.count > 1 ? 's' : ''}; it costs about ${(m.loss / 100).toFixed(1)} pawns.` }))
-    const b: Item[] = (u.scan?.missed ?? []).map((m) => ({ id: `m:${m.gameId}:${m.move}`, fen: m.fen, color: m.color, good: [m.best], best: m.best, avoid: m.played, kind: m.kind, why: `You played ${m.played} here and missed ${m.best}.` }))
+    const b: Item[] = (u.scan?.missed ?? []).filter((m) => !(missedId(m) in u.dismissed)).map((m) => ({ id: missedId(m), fen: m.fen, color: m.color, good: [m.best], best: m.best, avoid: m.played, kind: m.kind, why: `You played ${m.played} here and missed ${m.best}.` }))
     return [...a, ...b]
-  }, [u.scan])
+  }, [u.scan, u.dismissed])
   const order = useMemo(() => [...items].sort((x, y) => {
     const px = u.practice[x.id], py = u.practice[y.id]
     const sx = (px?.right ?? 0) - (px?.wrong ?? 0) * 0.5, sy = (py?.right ?? 0) - (py?.wrong ?? 0) * 0.5
@@ -29,7 +30,7 @@ export default function Practice() {
   const [key, setKey] = useState(0)
 
   if (!u.linked) return <><PageHead title="Practice" sub="Drill the mistakes you repeat." /><LinkCard /></>
-  if (!items.length) return <><PageHead title="Practice" sub="Drill the mistakes you repeat." /><div className="note">Nothing to practise yet. <Link className="link" to="/me/mistakes">Scan your games</Link> to find your repeated mistakes.</div></>
+  if (!items.length) return <><PageHead title="Practice" sub="Drill the mistakes you repeat." /><div className="note">Nothing to practice yet. <Link className="link" to="/me/mistakes">Scan your games</Link> to find your repeated mistakes.</div></>
   const it = order[i % order.length]
   const mastered = items.filter((x) => (u.practice[x.id]?.right ?? 0) >= 2 && (u.practice[x.id]?.wrong ?? 0) <= (u.practice[x.id]?.right ?? 0)).length
 

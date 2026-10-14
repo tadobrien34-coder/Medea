@@ -5,14 +5,15 @@ export interface Series {
   key: string; name: string; color: string; values: (number | null)[]
   band?: { lo: (number | null)[]; hi: (number | null)[] }
   dashed?: boolean
+  dotted?: boolean                      // the "you" line: yellow dots
 }
 const M = { l: 46, r: 14, t: 10, b: 30 }
 
 /* ---------------------------------------------------------------- line / band chart */
 export function LineChart({ xs, series, xFormat = (x) => String(x), yFormat = (v) => String(v), height = 260, yMin, yMax,
-  tipHeader, xTickCount = 7, zeroLine }: {
+  tipHeader, xTickCount = 7, zeroLine, reverse }: {
   xs: number[]; series: Series[]; xFormat?: (x: number) => string; yFormat?: (v: number) => string; height?: number
-  yMin?: number; yMax?: number; tipHeader?: (x: number) => string; xTickCount?: number; zeroLine?: boolean
+  yMin?: number; yMax?: number; tipHeader?: (x: number) => string; xTickCount?: number; zeroLine?: boolean; reverse?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const w = useWidth(ref)
@@ -33,7 +34,7 @@ export function LineChart({ xs, series, xFormat = (x) => String(x), yFormat = (v
   const ticks = niceTicks(lo, hi, 5)
   const y0 = ticks[0] < lo ? lo : Math.min(lo, ticks[0]), y1 = Math.max(hi, ticks[ticks.length - 1])
   const xmin = xs[0], xmax = xs[xs.length - 1]
-  const X = (x: number) => M.l + ((x - xmin) / (xmax - xmin || 1)) * iw
+  const X = (x: number) => M.l + (((reverse ? xmax - x : x - xmin)) / (xmax - xmin || 1)) * iw
   const Y = (v: number) => M.t + ih - ((v - y0) / (y1 - y0 || 1)) * ih
   const xt = useMemo(() => {
     const n = Math.min(xTickCount, xs.length)
@@ -75,8 +76,8 @@ export function LineChart({ xs, series, xFormat = (x) => String(x), yFormat = (v
         <g>{xt.map((x) => <text key={x} x={X(x)} y={height - 8} textAnchor="middle">{xFormat(x)}</text>)}</g>
         {series.map((s) => s.band && <path key={s.key + 'b'} d={bandPath(s.band)} fill={s.color} opacity={0.12} />)}
         {series.map((s) => (
-          <path key={s.key} d={path(s.values)} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round"
-            strokeDasharray={s.dashed ? '5 4' : undefined} />
+          <path key={s.key} d={path(s.values)} fill="none" stroke={s.color} strokeWidth={s.dotted ? 3 : 2} strokeLinejoin="round" strokeLinecap="round"
+            strokeDasharray={s.dotted ? '0.1 7' : s.dashed ? '5 4' : undefined} />
         ))}
         {hover != null && (
           <g>

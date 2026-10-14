@@ -36,11 +36,12 @@ export function Stat({ label, value, hint, unit }: { label: string; value: React
   )
 }
 
-export function WDL({ w, d, l, title }: { w: number; d: number; l: number; title?: string }) {
+export function WDL({ w, d, l, title, labels = true }: { w: number; d: number; l: number; title?: string; labels?: boolean }) {
   const t = w + d + l || 1
+  const p = [w / t, d / t, l / t]
   return (
-    <div className="wdl" title={title ?? `${(100 * w / t).toFixed(0)}% win · ${(100 * d / t).toFixed(0)}% draw · ${(100 * l / t).toFixed(0)}% loss`}>
-      <i style={{ flex: Math.max(w, 0.0001) }} /><i style={{ flex: Math.max(d, 0.0001) }} /><i style={{ flex: Math.max(l, 0.0001) }} />
+    <div className="wdl" title={title ?? `${(100 * p[0]).toFixed(0)}% win · ${(100 * p[1]).toFixed(0)}% draw · ${(100 * p[2]).toFixed(0)}% loss`}>
+      {p.map((v, i) => <i key={i} style={{ flex: Math.max(v, 0.0001) }}>{labels && v >= 0.1 ? Math.round(v * 100) : ''}</i>)}
     </div>
   )
 }
@@ -85,4 +86,9 @@ export function HBars({ labels, values, color, fmt, total, marks }: { labels: st
       ))}
     </div>
   )
+}
+
+/** Collapsed by default: explanations live here so the page stays mostly numbers. */
+export function ReadMore({ children, label = 'Read more' }: { children: ReactNode; label?: string }) {
+  return <details className="more"><summary>{label}</summary><div className="more-body">{children}</div></details>
 }

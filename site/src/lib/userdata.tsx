@@ -1,6 +1,6 @@
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { AccountError, Platform, UGame, loadChessCom, loadLichess } from './account'
-import { OpeningMistake, Missed, bestAt, evaluateGame, findBlunder, findMissedTactics, findOpeningMistakes, saveEvalCache } from './analysis'
+import { OpeningMistake, Missed, bestAt, evaluateGame, findBlunder, findMissedTactics, findOpeningMistakes, punishAt, saveEvalCache } from './analysis'
 import type { Book } from './book'
 import { load } from './data'
 import { kvGet, kvSet } from './idb'
@@ -11,11 +11,16 @@ export interface Profile { lichess?: string; chesscom?: string }
 export interface Scan { opening: OpeningMistake[]; missed: Missed[]; at: number }
 export interface Task { running: boolean; label: string; done: number; total: number }
 export type PracticeLog = Record<string, { right: number; wrong: number; last: number }>
+export type Range = 'all' | 'year' | '3m' | '1m' | '1d'
+export const RANGE_MS: Record<Range, number> = { all: 0, year: 365 * 864e5, '3m': 92 * 864e5, '1m': 31 * 864e5, '1d': 864e5 }
 
 interface Ctx {
   profile: Profile
   linked: boolean
-  games: UGame[]
+  games: UGame[]          // inside the chosen date range
+  allGames: UGame[]
+  range: Range
+  setRange: (r: Range) => void
   status: 'idle' | 'loading' | 'ready'
   progress: number
   error: string | null
@@ -29,6 +34,9 @@ interface Ctx {
   stopTask: () => void
   practice: PracticeLog
   recordPractice: (id: string, ok: boolean) => void
+  dismissed: Record<string, number>
+  dismiss: (id: string) => void
+  restore: (id: string) => void
 }
 
 const UserCtx = createContext<Ctx | null>(null)
@@ -53,8 +61,11 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [task, setTask] = useState<Task>(IDLE)
+  const [range, setRangeState] = useState<Range>(() => { try { return (localStorage.getItem('medea-range') as Range) || 'all' } catch { return 'all' } })
+  const setRange = useCallback((r: Range) => { setRangeState(r); try { localStorage.setItem('medea-range', r) } catch { /* private mode */ } }, [])
   const [scan, setScan] = useState<Scan | null>(null)
   const [practice, setPractice] = useState<PracticeLog>({})
+  const [dismissed, setDismissed] = useState<Record<string, number>>({})
   const stop = useRef(false)
   const sf = useRef<SF | null>(null)
   const ctl = useRef<AbortController | null>(null)
@@ -64,7 +75,8 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
   const engine = () => (sf.current ??= new SF())
   useEffect(() => () => sf.current?.destroy(), [])
 
-  const games = useMemo(() => [...stored.lichess, ...stored.chesscom].sort((a, b) => b.ts - a.ts), [stored])
+  const allGames = useMemo(() => [...stored.lichess, ...stored.chesscom].sort((a, b) => b.ts - a.ts), [stored])
+  const games = useMemo(() => (range === 'all' ? allGames : allGames.filter((g) => g.ts >= Date.now() - RANGE_MS[range])), [allGames, range])
   const linked = !!(profile.lichess || profile.chesscom)
   const profileKey = `${profile.lichess ?? ''}|${profile.chesscom ?? ''}`
 
@@ -81,6 +93,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       setStored(next); setStatus(next.lichess.length + next.chesscom.length ? 'ready' : 'idle')
       setScan((await kvGet<Scan>(`scan:${profileKey}`)) ?? null)
       setPractice((await kvGet<PracticeLog>('practice')) ?? {})
+      setDismissed((await kvGet<Record<string, number>>(`dismissed:${profileKey}`)) ?? {})
       if ((profile.lichess || profile.chesscom) && !next.lichess.length && !next.chesscom.length) fetchNew(profile, next)
     })()
     return () => { live = false }
@@ -138,7 +151,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
 
   const analyseLosses = useCallback(async (depth: 9 | 12) => {
     stop.current = false
-    const todo = games.filter((g) => g.res === 0 && g.blunder === undefined).slice(0, 80)
+    const todo = games.filter((g) => g.res === 0 && (g.blunder === undefined || (g.blunder && !g.blunder.punish))).slice(0, 80)
     if (!todo.length) return
     setTask({ running: true, label: 'Finding your blunders', done: 0, total: todo.length })
     const s = engine()
@@ -149,7 +162,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       if (!evs) { evs = await evaluateGame(s, g, depth, () => stop.current); if (!evs) break }
       g = { ...g, evs, evSrc: g.evSrc ?? 'local' }
       const b = findBlunder(g, 20)
-      if (b) b.best = await bestAt(s, g, b.ply, 12)
+      if (b) { b.best = await bestAt(s, g, b.ply, 12); b.punish = await punishAt(s, g, b.ply, 10) }
       g = { ...g, blunder: b }
       patchGame(g)
       if (n % 4 === 3) await saveEvalCache()
@@ -183,6 +196,9 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const value: Ctx = { profile, linked, games, status, progress, error, link, unlink, refresh, task, analyseLosses, scan, runScan, stopTask, practice, recordPractice }
+  const dismiss = useCallback((id: string) => setDismissed((d) => { const n = { ...d, [id]: Date.now() }; kvSet(`dismissed:${profileKey}`, n); return n }), [profileKey])
+  const restore = useCallback((id: string) => setDismissed((d) => { const n = { ...d }; delete n[id]; kvSet(`dismissed:${profileKey}`, n); return n }), [profileKey])
+
+  const value: Ctx = { profile, linked, games, allGames, range, setRange, status, progress, error, link, unlink, refresh, task, analyseLosses, scan, runScan, stopTask, practice, recordPractice, dismissed, dismiss, restore }
   return <UserCtx.Provider value={value}>{children}</UserCtx.Provider>
 }
